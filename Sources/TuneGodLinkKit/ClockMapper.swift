@@ -15,6 +15,9 @@ public struct ClockMapper: Sendable {
     // Phone frames at those two points.
     private var s0: UInt64 = 0
     private var s1: UInt64 = 0
+    /// Smoothed (frame, host) points about every half second, the last 10 s: the rate is measured across them, which averages the
+    /// arrival jitter away far better than one packet's period can.
+    private var anchors: [(sample: UInt64, host: Double)] = []
     public private(set) var locked = false
     /// Times the loop was restarted because the phone's frames jumped (a gap, or a new START).
     public private(set) var resets = 0
@@ -26,6 +29,7 @@ public struct ClockMapper: Sendable {
 
     public mutating func reset() {
         locked = false
+        anchors.removeAll()
     }
 
     /// One packet of `frames` frames starting at phone frame `sampleTime` arrived at `host` (seconds).
@@ -42,6 +46,7 @@ public struct ClockMapper: Sendable {
             s0 = sampleTime
             s1 = sampleTime + UInt64(frames)
             locked = true
+            anchors.removeAll()
             return
         }
         let e = host - t1
@@ -50,10 +55,20 @@ public struct ClockMapper: Sendable {
         e2 += c * e
         s0 = s1
         s1 += UInt64(frames)
+        if anchors.isEmpty || Double(s1 - anchors[anchors.count - 1].sample) >= sampleRate / 2 {
+            anchors.append((s1, t1))
+            if anchors.count > 21 { anchors.removeFirst() }
+        }
     }
 
     /// Smoothed phone frames per host second.
-    public var rate: Double { locked && e2 > 0 ? Double(s1 - s0) / e2 : sampleRate }
+    public var rate: Double {
+        guard locked else { return sampleRate }
+        if anchors.count >= 3, let first = anchors.first, let last = anchors.last, last.host > first.host {
+            return Double(last.sample - first.sample) / (last.host - first.host)
+        }
+        return e2 > 0 ? Double(s1 - s0) / e2 : sampleRate
+    }
 
     /// The host time (seconds) phone frame `sample` corresponds to.
     public func hostTime(forSample sample: UInt64) -> Double? {
