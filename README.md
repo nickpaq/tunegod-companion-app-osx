@@ -14,7 +14,7 @@ How it works: `docs/link-protocol.md`.
 | Link protocol, clock, MIDI conversion (`TuneGodLinkKit`) | Done, tested |
 | Cable connection, Mac session, virtual "TuneGod" MIDI ports | Done; tested against the phone simulator, not yet against a phone |
 | Menu-bar app (`TuneGod Companion`) | Builds; shows link state, latency, dropouts, MIDI, a test tone switch |
-| Audio device for Ableton (the driver, `Driver/`) | Written; install with `scripts/install-driver.sh` (asks for the Mac password) |
+| Audio device for Ableton (the driver, `Driver/`) | Installed on the Mac; audio flows both ways against the phone simulator. Install with `scripts/install-driver.sh` (asks for the Mac password) |
 | TuneGod's "Mac Link" mode on the iPhone | Not started (in `tunegod-native`) |
 
 ## Working on it (on the Mac)
