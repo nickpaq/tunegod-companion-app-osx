@@ -1,0 +1,39 @@
+# XcodeGen spec for the TuneGod Companion menu-bar app. Generate with `xcodegen` in this folder.
+name: TuneGodCompanion
+options:
+  bundleIdPrefix: app.tunegod
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: "3AK4NZ9W4P"
+packages:
+  TuneGodLink:
+    path: .
+targets:
+  TuneGodCompanion:
+    type: application
+    platform: macOS
+    sources:
+      - path: App/Sources
+    dependencies:
+      - package: TuneGodLink
+        product: TuneGodLinkKit
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: TuneGod Companion
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSUIElement: true
+        LSApplicationCategoryType: public.app-category.music
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.tunegod.companion
+        PRODUCT_NAME: TuneGod Companion
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
