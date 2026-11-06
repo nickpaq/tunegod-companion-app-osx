@@ -4,7 +4,7 @@ This repository is the Mac side of TuneGod Link: a Core Audio driver that makes 
 iPhone": outputs play on the phone's speaker, inputs carry its mic), plus a menu-bar helper that carries audio and MIDI over the USB cable.
 The iOS app is `nickpaq/tunegod-native`.
 
-- **The protocol is `docs/link-protocol.md`.** Both repositories implement it; a change bumps its version and lands on both sides.
+- **Start with `docs/HANDOFF.md`** (state and next steps). **The protocol is `docs/link-protocol.md`.** Both repositories implement it; a change bumps its version and lands on both sides.
 - Native Swift (and C/C++ only where the Core Audio plug-in interface needs it). No web code, no third-party names or branding anywhere,
   no comments citing outside sources.
 - **Git:** commits end with the Co-Authored-By and Claude-Session lines; no model names in commits, PRs or code.
