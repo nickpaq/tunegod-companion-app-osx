@@ -71,7 +71,15 @@ public final class LinkPhoneSimulator: @unchecked Sendable {
         let reader = Thread { [self] in readLoop(socket) }
         reader.qualityOfService = .userInteractive
         reader.start()
-        tickLoop(socket)
+        // The ticks run on their own top-priority thread, as a phone's audio IO thread would.
+        let done = DispatchSemaphore(value: 0)
+        let ticker = Thread { [self] in
+            tickLoop(socket)
+            done.signal()
+        }
+        ticker.qualityOfService = .userInteractive
+        ticker.start()
+        done.wait()
     }
 
     private func readLoop(_ socket: LinkSocket) {
@@ -108,7 +116,7 @@ public final class LinkPhoneSimulator: @unchecked Sendable {
         let rate = Double(config.sampleRate)
         let period = Double(frames) / rate
         let tone = ToneGenerator(frequency: 330, sampleRate: rate)
-        let start = HostClock.now()
+        var start = HostClock.now()
         var tick: UInt64 = 0
         var lastReport = start
         var lastNote = start
@@ -155,7 +163,12 @@ public final class LinkPhoneSimulator: @unchecked Sendable {
             tick += 1
             let deadline = start + Double(tick) * period
             let wait = deadline - HostClock.now()
-            if wait > 0 { mach_wait_until(HostClock.ticks() + HostClock.ticks(seconds: wait)) }
+            if wait > 0 {
+                mach_wait_until(HostClock.ticks() + HostClock.ticks(seconds: wait))
+            } else if wait < -2 * period {
+                // Fell behind (the Mac stalled this thread): carry on from now rather than bursting packets, as a phone's IO never bursts.
+                start = HostClock.now() - Double(tick) * period
+            }
         }
         socket.close()
     }
