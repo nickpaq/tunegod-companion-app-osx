@@ -11,6 +11,8 @@ public final class LinkPhoneSimulator: @unchecked Sendable {
         public var receivedRMS: Float
         public var midiReceived: Int
         public var packets: Int
+        /// Frames per second the simulator really produced (its timer, measured on the Mac's clock).
+        public var effectiveRate: Double
     }
 
     public let port: UInt16
@@ -116,7 +118,9 @@ public final class LinkPhoneSimulator: @unchecked Sendable {
         let rate = Double(config.sampleRate)
         let period = Double(frames) / rate
         let tone = ToneGenerator(frequency: 330, sampleRate: rate)
-        var start = HostClock.now()
+        RealtimeThread.promote(period: period, computation: period / 4)
+        let began = HostClock.now()
+        var start = began
         var tick: UInt64 = 0
         var lastReport = start
         var lastNote = start
@@ -154,7 +158,8 @@ public final class LinkPhoneSimulator: @unchecked Sendable {
                     sumSquares = 0
                     sampleCount = 0
                     return Report(underruns: underruns, late: late, bufferedFrames: blocks.count * frames, receivedRMS: rms,
-                                  midiReceived: midiReceived, packets: Int(tick))
+                                  midiReceived: midiReceived, packets: Int(tick),
+                                  effectiveRate: Double(tick) * Double(frames) / (wall - began))
                 }
                 try? socket.send(.status(LinkStatus(underruns: report.underruns, bufferedFrames: UInt32(report.bufferedFrames),
                                                     latePackets: report.late)))

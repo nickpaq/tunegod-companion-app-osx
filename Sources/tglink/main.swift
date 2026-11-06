@@ -69,7 +69,7 @@ case "phone-sim":
     sim.sendMIDINotes = args.contains("--midi")
     sim.onLog = { print($0) }
     sim.onReport = { r in
-        print("sim: packets \(r.packets) received rms \(String(format: "%.3f", r.receivedRMS)) underruns \(r.underruns) late \(r.late) "
+        print("sim: packets \(r.packets) rate \(String(format: "%.1f", r.effectiveRate)) received rms \(String(format: "%.3f", r.receivedRMS)) underruns \(r.underruns) late \(r.late) "
             + "buffered \(r.bufferedFrames)f midi in \(r.midiReceived)")
     }
     do {

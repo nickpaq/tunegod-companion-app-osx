@@ -104,6 +104,8 @@ public final class LinkMacSession: @unchecked Sendable {
     // MARK: Threads
 
     private func readLoop() {
+        // Each packet is answered with audio on this thread, so it runs like an audio thread (a 64-frame packet every 1.3 ms).
+        RealtimeThread.promote(period: 64.0 / 48000, computation: 0.0003)
         var decoder = LinkFrameDecoder()
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         do {

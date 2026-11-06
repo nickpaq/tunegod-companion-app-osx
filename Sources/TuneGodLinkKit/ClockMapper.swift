@@ -105,3 +105,23 @@ public enum HostClock {
         seconds <= 0 ? 0 : UInt64(seconds * 1e9 * Double(timebase.denom) / Double(timebase.numer))
     }
 }
+
+/// Real-time scheduling for threads that carry audio (what Core Audio's own IO threads use): `period` between wake-ups, `computation`
+/// of work in each. Without it a busy Mac can hold such a thread back by milliseconds.
+public enum RealtimeThread {
+    @discardableResult
+    public static func promote(period: Double, computation: Double) -> Bool {
+        var policy = thread_time_constraint_policy_data_t(
+            period: UInt32(HostClock.ticks(seconds: period)),
+            computation: UInt32(HostClock.ticks(seconds: computation)),
+            constraint: UInt32(HostClock.ticks(seconds: period)),
+            preemptible: 1)
+        let count = mach_msg_type_number_t(MemoryLayout<thread_time_constraint_policy_data_t>.size / MemoryLayout<integer_t>.size)
+        let rc = withUnsafeMutablePointer(to: &policy) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                thread_policy_set(pthread_mach_thread_np(pthread_self()), thread_policy_flavor_t(THREAD_TIME_CONSTRAINT_POLICY), $0, count)
+            }
+        }
+        return rc == KERN_SUCCESS
+    }
+}
