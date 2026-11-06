@@ -41,6 +41,10 @@ public final class LinkMacSession: @unchecked Sendable {
     public var onAudioUp: (@Sendable (LinkAudio, LinkConfig) -> Void)?
     /// MIDI from the phone with the Mac host time (ticks) it plays at; 0 = now (reader thread).
     public var onMIDI: (@Sendable ([UInt8], UInt64) -> Void)?
+    /// Each phone packet: its first frame, the Mac host time (ticks) the clock puts it at, and the phone's rate (reader thread).
+    public var onClock: (@Sendable (_ sampleTime: UInt64, _ hostTicks: UInt64, _ rate: Double) -> Void)?
+    /// The phone's CONFIG, START and STOP as they arrive (reader thread).
+    public var onControl: (@Sendable (LinkMessage) -> Void)?
     /// The link ended (reader thread). The error, if it ended on one.
     public var onClosed: (@Sendable (String?) -> Void)?
 
@@ -139,6 +143,7 @@ public final class LinkMacSession: @unchecked Sendable {
             guard h.protocolVersion == LinkProtocol.version else { throw LinkError.versionMismatch(h.protocolVersion) }
             lock.withLock { _stats.phoneVersion = h.appVersion }
         case .config(let c):
+            defer { onControl?(message) }
             lock.withLock {
                 _stats.config = c
                 _stats.downLeadFrames = 2 * Int(c.framesPerPacket)
@@ -148,6 +153,7 @@ public final class LinkMacSession: @unchecked Sendable {
                 lastAdjust = HostClock.now()
             }
         case .start:
+            defer { onControl?(message) }
             lock.withLock {
                 clock?.reset()
                 nextDown = nil
@@ -155,6 +161,7 @@ public final class LinkMacSession: @unchecked Sendable {
             }
         case .stop:
             lock.withLock { _stats.running = false }
+            onControl?(message)
         case .audioUp(let audio):
             try tick(audio)
         case .midi(let m):
@@ -181,12 +188,14 @@ public final class LinkMacSession: @unchecked Sendable {
         let frames = Int(audio.frames)
         // Blocks owed for this tick: everything from `nextDown` up to `lead` frames past the end of this packet. A grown lead fills its gap
         // with an extra block; a shrunk one sends nothing this tick, so the phone's stream never has a hole.
+        var clockPoint: (UInt64, Double)?
         let plan: (LinkConfig, [UInt64])? = lock.withLock {
             guard let c = _stats.config else { return nil }
             clock?.update(sampleTime: audio.sampleTime, frames: frames, host: host)
             _stats.packetsUp += 1
             _stats.measuredRate = clock?.rate
             _stats.clockResets = clock?.resets ?? 0
+            if let clock, let h = clock.hostTime(forSample: audio.sampleTime) { clockPoint = (HostClock.ticks(seconds: h), clock.rate) }
             guard frames > 0 else { return (c, []) }
             let lead = UInt64(_stats.downLeadFrames)
             let end = audio.sampleTime + UInt64(frames) + lead
@@ -203,6 +212,7 @@ public final class LinkMacSession: @unchecked Sendable {
         }
         guard let (config, times) = plan else { return }
         if !audio.samples.isEmpty { onAudioUp?(audio, config) }
+        if let (ticks, rate) = clockPoint { onClock?(audio.sampleTime, ticks, rate) }
         let channels = Int(config.downChannels)
         guard channels > 0, let downSource else { return }
         for t in times {

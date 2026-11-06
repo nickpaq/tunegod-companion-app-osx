@@ -15,6 +15,7 @@ import Testing
         .ping(LinkPing(id: 3, senderTime: 123_456_789)),
         .pong(LinkPing(id: 3, senderTime: 123_456_789)),
         .status(LinkStatus(underruns: 1, overruns: 2, bufferedFrames: 3, latePackets: 4)),
+        .clock(sampleTime: 4800, hostTicks: 1 << 50, rate: 47999.625),
     ]
 
     @Test func roundTripsEveryMessage() throws {
@@ -162,4 +163,24 @@ final class Locked<T>: @unchecked Sendable {
     init(_ v: T) { self.v = v }
     var value: T { lock.withLock { v } }
     func mutate(_ f: (inout T) -> Void) { lock.withLock { f(&v) } }
+}
+
+@Suite struct AudioRingTests {
+    @Test func readsWhatWasWrittenAndSilenceElsewhere() {
+        let ring = AudioRing(channels: 2, capacity: 256)
+        ring.write(sampleTime: 100, samples: (0..<20).map { Float($0) }, channels: 2)  // frames 100..<110
+        let (got, complete) = ring.read(sampleTime: 105, frames: 10, channels: 2)
+        #expect(!complete)
+        #expect(Array(got[0..<10]) == (10..<20).map { Float($0) })
+        #expect(Array(got[10...]) == [Float](repeating: 0, count: 10))
+        #expect(ring.read(sampleTime: 100, frames: 10, channels: 2).complete)
+    }
+
+    @Test func mapsChannelCountsAndForgetsOverwrittenFrames() {
+        let ring = AudioRing(channels: 2, capacity: 64)
+        ring.write(sampleTime: 0, samples: [1, 2, 3], channels: 1)
+        #expect(ring.read(sampleTime: 0, frames: 3, channels: 2).samples == [1, 1, 2, 2, 3, 3])
+        ring.write(sampleTime: 200, samples: [9, 9], channels: 2)
+        #expect(ring.read(sampleTime: 0, frames: 3, channels: 2).samples == [Float](repeating: 0, count: 6))
+    }
 }

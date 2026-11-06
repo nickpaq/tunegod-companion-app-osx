@@ -1,5 +1,5 @@
-// TuneGod Companion: a menu-bar app that keeps the link to the iPhone open over the USB cable. For now it carries MIDI (the "TuneGod" ports)
-// and a test tone; the audio device for Ableton comes with the driver.
+// TuneGod Companion: a menu-bar app that keeps the link to the iPhone open over the USB cable and carries it to the "TuneGod iPhone" audio
+// device (the driver) and the "TuneGod" MIDI ports.
 import SwiftUI
 import TuneGodLinkKit
 
@@ -68,9 +68,11 @@ struct LinkMenu: View {
             Label(link.state.midiPorts ? "MIDI port \u{201C}TuneGod\u{201D} is ready" : "MIDI ports unavailable",
                   systemImage: "pianokeys")
                 .font(.callout)
-            Label("Audio device: coming with the driver", systemImage: "speaker.wave.2")
+            Label(link.state.driverConnected ? "Audio device \u{201C}TuneGod iPhone\u{201D} is ready"
+                  : link.state.driverPortBusy ? "Another copy of the companion is running"
+                  : "Audio driver not installed", systemImage: "speaker.wave.2")
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(link.state.driverConnected ? .primary : .secondary)
             Divider()
             Button("Quit") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")

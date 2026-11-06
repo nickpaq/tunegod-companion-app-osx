@@ -37,3 +37,39 @@ targets:
         PRODUCT_NAME: TuneGod Companion
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
+  TuneGodLinkDriver:
+    # The Core Audio server plug-in ("TuneGod iPhone"); installed into /Library/Audio/Plug-Ins/HAL by scripts/install-driver.sh.
+    type: bundle
+    platform: macOS
+    sources:
+      - path: Driver
+        excludes: ["Info.plist"]
+    dependencies:
+      - sdk: CoreAudio.framework
+      - sdk: CoreFoundation.framework
+    info:
+      path: Driver/Info.plist
+      properties:
+        CFBundleName: TuneGodLink
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundlePackageType: BNDL
+        CFPlugInFactories:
+          3DBD5120-C4D4-4715-A89C-44CAF939C104: TuneGodLink_Create
+        CFPlugInTypes:
+          443ABAB8-E7B3-491A-B985-BEB9187030DB:
+            - 3DBD5120-C4D4-4715-A89C-44CAF939C104
+        # The driver reaches the helper over loopback TCP.
+        AudioServerPlugIn_Network: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.tunegod.companion.driver
+        PRODUCT_NAME: TuneGodLink
+        WRAPPER_EXTENSION: driver
+        GCC_C_LANGUAGE_STANDARD: c11
+        GCC_SYMBOLS_PRIVATE_EXTERN: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        # Signed to run on this Mac while in development; a Developer ID signature comes with the installer.
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""

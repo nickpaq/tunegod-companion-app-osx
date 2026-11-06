@@ -12,7 +12,7 @@ here bumps `PROTOCOL_VERSION` and lands in both.
 ## Parts
 ```
  Ableton ──Core Audio──▶ TuneGod Link driver (HAL plug-in, inside coreaudiod)
-                               │  shared-memory rings (audio) + XPC (control)
+                               │  loopback TCP 47821 (audio + the phone's clock)
                                ▼
                          TuneGod Link helper (menu-bar app + its daemon)
                                │  virtual MIDI ports "TuneGod" (in/out)
@@ -20,12 +20,10 @@ here bumps `PROTOCOL_VERSION` and lands in both.
                                ▼
                          TuneGod iOS app, "Mac Link" mode (listens on loopback port 47820)
 ```
-- **Driver** (`AudioServerPlugIn`): publishes the device "TuneGod iPhone". It never touches USB or MIDI; it reads and writes audio rings that
-  the helper fills and drains. The helper's Mach service is listed under `AudioServerPlugIn_MachServices` in the driver's Info.plist so the
-  sandboxed plug-in may reach it.
-- **Helper**: finds the phone on the cable, holds the one TCP connection, moves audio between the socket and the rings, owns the virtual
-  MIDI ports, measures latency and shows status in the menu bar. Registered as a launch daemon through `SMAppService` so the system audio
-  process can look it up.
+- **Driver** (`AudioServerPlugIn`): publishes the device "TuneGod iPhone". It never touches USB or MIDI; it exchanges audio and the
+  clock with the helper over a loopback TCP connection (see "Driver").
+- **Helper**: finds the phone on the cable, holds the one TCP connection, relays audio and the clock between the phone and the driver,
+  owns the virtual MIDI ports, measures latency and shows status in the menu bar.
 - **iOS app**: runs the audio session, plays what arrives, sends the mic, and is the **clock master**.
 
 ## Transport
@@ -94,6 +92,19 @@ A receiver skips any `type` it does not know (forward compatibility). A `length`
   existing MIDI input handling.
 - MIDI clock (24 per quarter) and start/stop ride these messages like any other MIDI.
 
+## Driver (helper ↔ driver, Mac only)
+The driver connects to the helper at `127.0.0.1:47821` (allowed by `AudioServerPlugIn_Network` in its Info.plist) and speaks the same
+framing. Helper → driver: the phone's `CONFIG`, `START`/`STOP`, every mic `AUDIO_UP`, and after each phone packet
+`CLOCK` (0x50: `sampleTime` u64, `hostTicks` u64, `rate` f64 bits): phone frame `sampleTime` falls at Mac host time `hostTicks`.
+Driver → helper: `AUDIO_DOWN` blocks of what Mac apps played, stamped with phone frames.
+- The device's sample time maps to host time through the latest `CLOCK`, so the device runs at the phone's rate. Device frame + `offset`
+  = phone frame; `offset` is set when the clock locks so the device's timeline stays continuous, and the device free-runs at its last
+  rate (silent) when the phone goes.
+- Output: what an app writes for device frame S goes to phone frame S + offset; the helper sends it to the phone `lead` frames ahead.
+  The output safety offset (256 frames) keeps apps writing far enough ahead of the helper's lead.
+- Input: device frame S reads the mic at phone frame S + offset; the input safety offset (128) covers one phone packet and the hop.
+- The IO callbacks touch only a seqlock'd clock and two rings with atomic positions; the driver's own threads do the socket work.
+
 ## Latency budget (48 kHz, 64-frame packets)
 | stage | ms |
 |---|---|
@@ -116,5 +127,5 @@ Measured `PING` round trips and the leads show in the helper's menu so the real 
 
 ## Open items to verify early
 1. The cable tunnel reaches a socket listening on the phone's loopback address (expected; check on the device first).
-2. The plug-in can look up the helper's Mach service and map shared memory from it.
+2. ~~The plug-in can reach the helper~~: it connects over loopback TCP, allowed by `AudioServerPlugIn_Network`.
 3. The smallest IO buffer iOS grants with the speaker and mic both running.

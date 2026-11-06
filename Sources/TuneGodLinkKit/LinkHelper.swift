@@ -20,6 +20,10 @@ public final class LinkHelper: @unchecked Sendable {
         /// Why nothing is connected, in plain words.
         public var waiting: String = "Starting…"
         public var midiPorts = false
+        /// The "TuneGod iPhone" audio device's driver is connected to this helper.
+        public var driverConnected = false
+        /// The driver bridge could not listen (another copy of the helper is running).
+        public var driverPortBusy = false
         public init() {}
     }
 
@@ -38,6 +42,7 @@ public final class LinkHelper: @unchecked Sendable {
     private var running = false
     private var _toneOn = false
     private let tone = ToneGenerator()
+    public let bridge = LinkDriverBridge()
 
     public init(target: Target = .usb, appVersion: String, midiPorts: Bool = true) {
         self.target = target
@@ -49,9 +54,11 @@ public final class LinkHelper: @unchecked Sendable {
     }
 
     public var state: State {
-        lock.withLock {
+        let driver = bridge.connected
+        return lock.withLock {
             var s = _state
             s.stats = session?.stats
+            s.driverConnected = driver
             return s
         }
     }
@@ -67,6 +74,12 @@ public final class LinkHelper: @unchecked Sendable {
             return !running
         }
         guard first else { return }
+        let listening = bridge.start()
+        lock.withLock { _state.driverPortBusy = !listening }
+        bridge.onChange = { [weak self] _ in
+            guard let self else { return }
+            self.onChange?(self.state)
+        }
         midi?.onFromApps = { [weak self] bytes, ticks in
             self?.lock.withLock { self?.session }?.sendMIDI(bytes, hostTicks: ticks)
         }
@@ -134,12 +147,18 @@ public final class LinkHelper: @unchecked Sendable {
             guard let self else { return [Float](repeating: 0, count: frames * channels) }
             if let custom = self.downSource { return custom(t, frames, channels) }
             if self.toneOn { return self.tone.render(frames: frames, channels: channels) }
-            return [Float](repeating: 0, count: frames * channels)
+            return self.bridge.output.read(sampleTime: t, frames: frames, channels: channels).samples
         }
-        s.onAudioUp = { [weak self] audio, config in self?.onAudioUp?(audio, config) }
+        s.onAudioUp = { [weak self] audio, config in
+            self?.bridge.send(.audioUp(audio))
+            self?.onAudioUp?(audio, config)
+        }
+        s.onClock = { [weak self] t, ticks, rate in self?.bridge.send(.clock(sampleTime: t, hostTicks: ticks, rate: rate)) }
+        s.onControl = { [weak self] message in self?.bridge.send(message) }
         s.onMIDI = { [weak self] bytes, ticks in self?.midi?.send(bytes, hostTicks: ticks) }
         s.onClosed = { [weak self] error in
             guard let self else { return }
+            self.bridge.send(.stop)
             self.lock.withLock {
                 self.session = nil
                 self._state.connectedTo = nil

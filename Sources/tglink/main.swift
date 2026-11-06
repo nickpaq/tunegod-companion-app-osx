@@ -4,6 +4,7 @@
 //                                       open the link (the cable, or a TCP address), print its numbers once a second
 //   tglink phone-sim [--port N] [--midi]
 //                                       play the phone's part on this Mac
+//   tglink device-test [--seconds N]    play a tone into "TuneGod iPhone" and measure its input
 import Foundation
 import TuneGodLinkKit
 
@@ -54,7 +55,7 @@ case "connect":
             | down ≈\(fmt(s.downLatencyMs)) ms up ≈\(fmt(s.upLatencyMs)) ms \
             | rate \(fmt(s.measuredRate, 2)) resets \(s.clockResets) \
             | phone underruns \(status?.underruns ?? 0) late \(status?.latePackets ?? 0) buffered \(status?.bufferedFrames ?? 0)f \
-            | midi up \(s.midiUp) down \(s.midiDown)
+            | midi up \(s.midiUp) down \(s.midiDown) | driver \(state.driverConnected ? "on" : "off")
             """)
     }
     helper.onAudioUp = nil
@@ -62,6 +63,9 @@ case "connect":
     while seconds.map({ Date().timeIntervalSince(started) < $0 }) ?? true { Thread.sleep(forTimeInterval: 0.25) }
     helper.stop()
     Thread.sleep(forTimeInterval: 0.2)
+
+case "device-test":
+    exit(DeviceTest.run(seconds: value("--seconds").flatMap(Double.init) ?? 6))
 
 case "phone-sim":
     let port = value("--port").flatMap(UInt16.init) ?? LinkProtocol.port
@@ -85,5 +89,6 @@ default:
           tglink devices [--all]
           tglink connect [--direct HOST:PORT] [--tone] [--seconds N]
           tglink phone-sim [--port N] [--midi]
+          tglink device-test [--seconds N]
         """)
 }

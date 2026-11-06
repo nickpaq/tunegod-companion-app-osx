@@ -6,6 +6,8 @@ public enum LinkProtocol {
     public static let version: UInt16 = 1
     /// The port the phone listens on (loopback) while Mac Link is on.
     public static let port: UInt16 = 47820
+    /// The helper's loopback port the driver connects to (Mac only).
+    public static let driverPort: UInt16 = 47821
     public static let magic: [UInt8] = Array("TGLK".utf8)
     public static let headerSize = 8
     public static let maxPayload = 1 << 20
@@ -41,6 +43,7 @@ public enum LinkMessageType: UInt8, Sendable {
     case midi = 0x20
     case ping = 0x30, pong = 0x31
     case status = 0x40
+    case clock = 0x50
 }
 
 public enum LinkRole: UInt8, Sendable { case phone = 0, mac = 1 }
@@ -140,6 +143,8 @@ public enum LinkMessage: Equatable, Sendable {
     case ping(LinkPing)
     case pong(LinkPing)
     case status(LinkStatus)
+    /// Helper → driver only: phone frame `sampleTime` falls at Mac host time `hostTicks`, and the phone runs at `rate` frames per second.
+    case clock(sampleTime: UInt64, hostTicks: UInt64, rate: Double)
     /// A type this side does not know; skipped (forward compatibility).
     case unknown(type: UInt8)
 
@@ -195,6 +200,11 @@ public enum LinkMessage: Equatable, Sendable {
             w.u32(s.overruns)
             w.u32(s.bufferedFrames)
             w.u32(s.latePackets)
+        case .clock(let t, let ticks, let rate):
+            type = LinkMessageType.clock.rawValue
+            w.u64(t)
+            w.u64(ticks)
+            w.u64(rate.bitPattern)
         case .unknown(let t):
             type = t
         }
@@ -248,6 +258,8 @@ public enum LinkMessage: Equatable, Sendable {
             return known == .ping ? .ping(p) : .pong(p)
         case .status:
             return .status(LinkStatus(underruns: try r.u32(), overruns: try r.u32(), bufferedFrames: try r.u32(), latePackets: try r.u32()))
+        case .clock:
+            return .clock(sampleTime: try r.u64(), hostTicks: try r.u64(), rate: Double(bitPattern: try r.u64()))
         }
     }
 }
