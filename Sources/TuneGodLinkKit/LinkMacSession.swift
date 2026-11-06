@@ -178,7 +178,7 @@ public final class LinkMacSession: @unchecked Sendable {
             lock.withLock { _stats.roundTripMs = rtt }
         case .status(let s):
             adapt(to: s)
-        case .audioDown, .unknown:
+        case .audioDown, .clock, .unknown:
             break
         }
     }
