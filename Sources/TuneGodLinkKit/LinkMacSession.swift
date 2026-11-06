@@ -52,6 +52,8 @@ public final class LinkMacSession: @unchecked Sendable {
     private var lastUnderruns: UInt32 = 0
     private var lastAdjust = 0.0
     private var pingID: UInt32 = 0
+    /// The next phone frame owed a down block; keeps the down stream gapless while the lead moves.
+    private var nextDown: UInt64?
     private var running = false
 
     public init(socket: LinkSocket, appVersion: String) {
@@ -139,12 +141,14 @@ public final class LinkMacSession: @unchecked Sendable {
                 _stats.config = c
                 _stats.downLeadFrames = 2 * Int(c.framesPerPacket)
                 clock = ClockMapper(sampleRate: Double(c.sampleRate))
+                nextDown = nil
                 lastUnderruns = 0
                 lastAdjust = HostClock.now()
             }
         case .start:
             lock.withLock {
                 clock?.reset()
+                nextDown = nil
                 _stats.running = true
             }
         case .stop:
@@ -172,24 +176,39 @@ public final class LinkMacSession: @unchecked Sendable {
 
     private func tick(_ audio: LinkAudio) throws {
         let host = HostClock.now()
-        let state: (LinkConfig, Int)? = lock.withLock {
+        let frames = Int(audio.frames)
+        // Blocks owed for this tick: everything from `nextDown` up to `lead` frames past the end of this packet. A grown lead fills its gap
+        // with an extra block; a shrunk one sends nothing this tick, so the phone's stream never has a hole.
+        let plan: (LinkConfig, [UInt64])? = lock.withLock {
             guard let c = _stats.config else { return nil }
-            clock?.update(sampleTime: audio.sampleTime, frames: Int(audio.frames), host: host)
+            clock?.update(sampleTime: audio.sampleTime, frames: frames, host: host)
             _stats.packetsUp += 1
             _stats.measuredRate = clock?.rate
             _stats.clockResets = clock?.resets ?? 0
-            return (c, _stats.downLeadFrames)
+            guard frames > 0 else { return (c, []) }
+            let lead = UInt64(_stats.downLeadFrames)
+            let end = audio.sampleTime + UInt64(frames) + lead
+            var next = nextDown ?? audio.sampleTime + lead
+            // Behind the phone already (a stall): start again at the lead rather than send blocks it will drop.
+            if next < audio.sampleTime + UInt64(frames) { next = audio.sampleTime + lead }
+            var times: [UInt64] = []
+            while next + UInt64(frames) <= end, times.count < 8 {
+                times.append(next)
+                next += UInt64(frames)
+            }
+            nextDown = next
+            return (c, times)
         }
-        guard let (config, lead) = state else { return }
+        guard let (config, times) = plan else { return }
         if !audio.samples.isEmpty { onAudioUp?(audio, config) }
         let channels = Int(config.downChannels)
         guard channels > 0, let downSource else { return }
-        let frames = Int(audio.frames)
-        let t = audio.sampleTime + UInt64(lead)
-        let samples = downSource(t, frames, channels)
-        guard samples.count == frames * channels else { return }
-        try socket.send(.audioDown(LinkAudio(sampleTime: t, frames: audio.frames, samples: samples)))
-        lock.withLock { _stats.packetsDown += 1 }
+        for t in times {
+            let samples = downSource(t, frames, channels)
+            guard samples.count == frames * channels else { continue }
+            try socket.send(.audioDown(LinkAudio(sampleTime: t, frames: audio.frames, samples: samples)))
+            lock.withLock { _stats.packetsDown += 1 }
+        }
     }
 
     /// Raises the lead by one packet when the phone ran dry, lowers it by one after 30 s without a dropout.

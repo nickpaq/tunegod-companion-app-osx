@@ -136,7 +136,7 @@ import Testing
         session.start()
         Thread.sleep(forTimeInterval: 0.5)
         session.sendMIDI([0x90, 64, 1], hostTicks: 0)
-        Thread.sleep(forTimeInterval: 2.2)
+        Thread.sleep(forTimeInterval: 3.2)
         let stats = session.stats
         session.stop()
 
@@ -148,7 +148,9 @@ import Testing
         #expect(midiUp.value >= 3)
         let last = try #require(reports.value.last)
         #expect(last.receivedRMS > 0.1)
-        #expect(last.underruns < 20)
+        // Start-up may miss a block or two; a lead that keeps climbing (gaps when it moves) would show here.
+        #expect(last.underruns < 6)
+        #expect(stats.downLeadFrames <= 4 * 64)
         #expect(last.midiReceived == 1)
     }
 }
