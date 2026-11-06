@@ -20,6 +20,7 @@ public final class LinkHelper: @unchecked Sendable {
         /// Why nothing is connected, in plain words.
         public var waiting: String = "Starting…"
         public var midiPorts = false
+        public init() {}
     }
 
     public let target: Target
