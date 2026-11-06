@@ -35,24 +35,15 @@ public final class LinkMIDIPorts: @unchecked Sendable {
     /// Bytes from the phone out of the "TuneGod" source at `hostTicks` (0 = now).
     public func send(_ bytes: [UInt8], hostTicks: UInt64) {
         let messages = MIDIUMP.messages(fromBytes: bytes)
-        guard !messages.isEmpty else { return }
-        var list = MIDIEventList()
-        var packet = MIDIEventListInit(&list, ._1_0)
+        // One list per message (a message is at most two words, far under a list's room), so a list never overflows.
         for words in messages {
-            let added = words.withUnsafeBufferPointer {
+            var list = MIDIEventList()
+            let packet = MIDIEventListInit(&list, ._1_0)
+            _ = words.withUnsafeBufferPointer {
                 MIDIEventListAdd(&list, MemoryLayout<MIDIEventList>.size, packet, hostTicks, $0.count, $0.baseAddress!)
             }
-            if let added {
-                packet = added
-            } else {
-                MIDIReceivedEventList(source, &list)
-                packet = MIDIEventListInit(&list, ._1_0)
-                packet = words.withUnsafeBufferPointer {
-                    MIDIEventListAdd(&list, MemoryLayout<MIDIEventList>.size, packet, hostTicks, $0.count, $0.baseAddress!)
-                } ?? packet
-            }
+            MIDIReceivedEventList(source, &list)
         }
-        MIDIReceivedEventList(source, &list)
     }
 
     private func receive(_ list: UnsafePointer<MIDIEventList>) {
