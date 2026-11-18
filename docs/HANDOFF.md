@@ -129,6 +129,15 @@ built from, with its numbers (threshold, lengths, trimming), is `docs/superpower
   windows, `~/Developer/tgi-test/click <x> <y>` clicks. The folder can be set while the companion runs with
   `defaults write app.tunegod.companion maker.folder <path>`. The user's own folder is `tunegod instrument files` in iCloud Drive.
 
+## Fill pads (2026-11-18, the user's request; built and unit-tested, **not clicked by anyone**)
+- **Fill pads** (a menu beside the MIDI channel) puts a ready-made layout on all sixteen pads (`KitSetup.presets`), keeping the
+  layers, alternates and channel. **Kick, snare and hats** (`KitSetup.kickSnareHats`) is for the user's drum plugin on its standard
+  note map (the map file the user sent): each row is kick, a snare hit, a closed hat, an open hat. From the top: kick 36, sidestick
+  42, hat foot 48, wide open 57 · kick, snare 2 43, closed hat 3 50, tight open 54 · kick, snare 38, closed hat 2 51, half open 55 ·
+  kick, rimshot 39, closed hat 49, open 56. Open hats are ordered by how long the plugin rings them (`tgi-test/probe.log`); every hat
+  cuts the open hats. Notes 43 and 50 are sounding snare and closed-hat hits whose exact names are not known.
+- `tgsample setup "<plugin>" "Kick, snare and hats"` keeps it as the plugin's setup; also `~/Developer/tgi-test/kick-snare-hats-map.txt`.
+
 ## Browse, hear, one button (2026-11-18, the user's request)
 The user asked to browse the plugin's presets, hear a kit and make its `.tgi` with one button, "exactly how it worked for the test"
 instrument, the file carrying the preset's name.
