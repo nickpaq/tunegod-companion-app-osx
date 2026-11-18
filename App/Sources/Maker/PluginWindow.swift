@@ -10,6 +10,10 @@ import TuneGodSamplerKit
 final class PluginWindow {
     private var window: NSWindow?
     private var shownFor: String?
+    /// The plugin's own view and its controller, kept while the window shows them, and the watch on the view's size.
+    private var controller: NSViewController?
+    private var pluginView: NSView?
+    private var sizeWatch: NSObjectProtocol?
 
     func show(_ host: PluginHost, bar: PluginWindowBar) {
         if let window, shownFor == host.info.id {
@@ -23,17 +27,42 @@ final class PluginWindow {
             DispatchQueue.main.async { [weak self] in
                 // Closed, or another plugin chosen, while the view was being made.
                 guard let self, self.shownFor == id, self.window == nil else { return }
-                let content: NSViewController
+                let window: NSWindow
                 if let controller {
-                    content = controller
+                    // The plugin's view keeps the size the plugin gives it, at the top left of a plain view, and the window follows
+                    // it: a plugin that changes its own size (a scale setting, a panel that opens) is never cut off by the window.
+                    let view = controller.view
+                    let size = view.frame.size.width > 1 ? view.frame.size : controller.preferredContentSize
+                    let holder = TopLeftView(frame: NSRect(origin: .zero, size: size))
+                    view.autoresizingMask = []
+                    view.frame = NSRect(origin: .zero, size: size)
+                    holder.addSubview(view)
+                    window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable],
+                                      backing: .buffered, defer: false)
+                    window.contentView = holder
+                    window.center()
+                    view.postsFrameChangedNotifications = true
+                    self.sizeWatch = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: .main) { [weak window, weak view] _ in
+                        MainActor.assumeIsolated {
+                            guard let window, let view, view.frame.size.width > 1, view.frame.size.height > 1 else { return }
+                            if view.frame.origin != .zero { view.setFrameOrigin(.zero) }
+                            guard let shown = window.contentView?.frame.size,
+                                  abs(shown.width - view.frame.width) > 0.5 || abs(shown.height - view.frame.height) > 0.5 else { return }
+                            // The top left corner stays where it is.
+                            let top = window.frame.maxY
+                            window.setContentSize(view.frame.size)
+                            window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: top))
+                        }
+                    }
+                    self.controller = controller
+                    self.pluginView = view
                 } else {
                     let generic = AUGenericViewController()
                     generic.auAudioUnit = unit
-                    content = generic
+                    window = NSWindow(contentViewController: generic)
+                    window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
                 }
-                let window = NSWindow(contentViewController: content)
                 window.title = title
-                window.styleMask = controller == nil ? [.titled, .closable, .miniaturizable, .resizable] : [.titled, .closable, .miniaturizable]
                 window.isReleasedWhenClosed = false
                 let accessory = NSTitlebarAccessoryViewController()
                 accessory.layoutAttribute = .trailing
@@ -61,7 +90,7 @@ final class PluginWindow {
     func watchNextClick(_ found: @escaping (CGPoint) -> Void) {
         stopWatchingClick()
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-            guard let self, let window = self.window, event.window === window, let content = window.contentView else { return event }
+            guard let self, let window = self.window, event.window === window, let content = self.pluginView ?? window.contentView else { return event }
             let at = content.convert(event.locationInWindow, from: nil)
             guard content.bounds.contains(at) else { return event }
             self.stopWatchingClick()
@@ -77,7 +106,7 @@ final class PluginWindow {
 
     /// Clicks the plugin's view at `point` (points from its top left), as the mouse would. The pointer does not move.
     func click(at point: CGPoint) {
-        guard let window, let content = window.contentView else { return }
+        guard let window, let content = pluginView ?? window.contentView else { return }
         let location = windowPoint(point, in: content)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             guard let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
@@ -89,6 +118,11 @@ final class PluginWindow {
 
     func close() {
         stopWatchingClick()
+        if let sizeWatch { NotificationCenter.default.removeObserver(sizeWatch) }
+        sizeWatch = nil
+        pluginView?.removeFromSuperview()
+        pluginView = nil
+        controller = nil
         window?.close()
         window = nil
         shownFor = nil
@@ -141,4 +175,9 @@ struct PluginWindowBar: View {
         .frame(height: 28)
         .fixedSize()
     }
+}
+
+/// A plain view measured from its top left, so the plugin's view sits in that corner whatever its size.
+private final class TopLeftView: NSView {
+    override var isFlipped: Bool { true }
 }
