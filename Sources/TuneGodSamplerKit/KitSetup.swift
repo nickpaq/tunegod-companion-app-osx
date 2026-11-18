@@ -5,7 +5,7 @@ public let MAX_LAYERS = 8
 public let MAX_ALTERNATES = 4
 
 /// One pad: the plugin's note it plays, and how the pad reads on the phone.
-public struct PadSetup: Equatable, Sendable {
+public struct PadSetup: Equatable, Sendable, Codable {
     /// The plugin's note, 0…127.
     public var note: Int
     public var label: String
@@ -29,7 +29,7 @@ public struct PadSetup: Equatable, Sendable {
     }
 }
 
-public struct KitSetup: Equatable, Sendable {
+public struct KitSetup: Equatable, Sendable, Codable {
     /// Exactly 16, row by row from the top left; nil is an empty pad.
     public var pads: [PadSetup?]
     /// Velocity layers a pad, 1…8.

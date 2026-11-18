@@ -2,8 +2,6 @@
 // every kit of that plugin. One small file a plugin, in the user's Application Support folder; also a setup written as text.
 import Foundation
 
-extension PadSetup: Codable {}
-extension KitSetup: Codable {}
 
 /// Where the pad setups are kept on this Mac.
 public func padSetupFolder() -> URL {
