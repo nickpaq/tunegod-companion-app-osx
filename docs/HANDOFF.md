@@ -92,6 +92,24 @@ built from, with its numbers (threshold, lengths, trimming), is `docs/superpower
 | Command-line tool | `Sources/tgsample/` | `list`, `setup "<plugin>" <map.txt>`, `make "<plugin>" <out.tgi>` |
 | The window | `App/Sources/Maker/` | Builds and opens with the user's drum plugin; its title bar showed the first kit's name (one screenshot, 2026-11-18). **No button was clicked by a person**, and the name following a kit chosen by hand has not been seen |
 
+## Every kit, the folder, iCloud (2026-11-18, the user's requests; built, **not tried by anyone**)
+- **Make every kit** (`MakerModel.makeEveryKit`, the row under the name in the maker's window): the user shows once where the
+  plugin's next-kit button is (**Show the next-kit button…**, then a click in the plugin's window; kept per plugin in the app's
+  defaults as `maker.nextKit.<plugin id>`, points from the top left of the plugin's view). A run makes the kit, repeats that click
+  (`PluginWindow.click`, mouse events sent to the plugin's window; the pointer does not move), waits for the kit's name to change
+  and `KIT_LOAD_SECONDS` for its sounds, and goes on until the name stops changing, a name comes round again, Stop, or
+  `MOST_KITS`. A kit whose file is already in the folder is passed over, so a stopped run carries on. The user's drum plugin has
+  up and down arrows beside the kit's name for this (the user). **Whether a sent click moves that plugin has not been tested.**
+- **The folder** (`madeInstrumentsFolder`, the Save menu): the Desktop, "TuneGod Instruments" in iCloud Drive, or any folder.
+- **Room on the Mac** (the user: "Make sure they don't all save on my local storage"): an instrument written in iCloud Drive is
+  given back once iCloud has it (`freeLocalCopy`: `evictUbiquitousItem`, tried on the Mac with a test file: the file stayed in the
+  folder at 0 bytes on disk). A run waits while `MOST_WAITING_FOR_ICLOUD` are still going up. Quitting before they are up leaves
+  those on the disk.
+- **The plugin's window follows the plugin's own size** (`PluginWindow.show`: the plugin's view in a plain holder, the window
+  resized when the view's frame changes). The user could not close the plugin's scale panel after opening it; this is a guess at
+  why (the view outgrew a window that kept its first size), not reproduced.
+- Debug launch: `--plugin <name> --sample --every-kit --make-instrument` starts a run once the plugin has loaded.
+
 ## Browse, hear, one button (2026-11-18, the user's request)
 The user asked to browse the plugin's presets, hear a kit and make its `.tgi` with one button, "exactly how it worked for the test"
 instrument, the file carrying the preset's name.

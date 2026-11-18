@@ -71,6 +71,8 @@ func freeLocalCopy(_ url: URL) -> Bool {
 
 /// After the plugin has changed kit, how long it is given to load the kit's sounds before it is sampled.
 let KIT_LOAD_SECONDS = 5.0
+/// Make every kit waits while this many instruments are still going up to iCloud, so a slow connection never fills the disk.
+let MOST_WAITING_FOR_ICLOUD = 8
 /// A run of Make every kit never makes more than this.
 let MOST_KITS = 1000
 
@@ -441,6 +443,8 @@ final class MakerModel {
                 guard seen.insert(name).inserted else { ended = "The kits came round to \(name) again."; break }
                 guard seen.count <= MOST_KITS else { ended = "Stopped at \(MOST_KITS) kits."; break }
                 kit = name
+                while toFree.count >= MOST_WAITING_FOR_ICLOUD, batch != nil { try? await Task.sleep(for: .seconds(2)) }
+                guard batch != nil else { break }
                 if FileManager.default.fileExists(atPath: folder.appendingPathComponent(instrumentFileName(name)).path) {
                     skipped += 1
                 } else {
