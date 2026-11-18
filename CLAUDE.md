@@ -22,5 +22,7 @@ line) and `App/Sources/Maker` (the window). It does not touch the Link code, and
   for both sides.
 - What is built, what was run and what was not: the second half of `docs/HANDOFF.md`. The numbers (threshold, lengths, trimming):
   `docs/superpowers/plans/2026-11-18-instrument-maker-pads.md`.
+- A plugin's presets are browsed in the plugin's own window; the maker reads only the chosen one's name from the plugin's state
+  and never opens a plugin's own files. One button (Make instrument) samples and writes `<kit name>.tgi` on the Desktop.
 - Plugins are named in the interface only as the Mac lists them; no plugin maker's name is written into code, copy or tests (the tests
   use the system's own instrument).
