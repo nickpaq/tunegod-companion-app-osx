@@ -123,7 +123,8 @@ import Testing
             #expect(setup.pads[row * 4 + 2]?.type == "closedHat")
             #expect(setup.pads[row * 4 + 3]?.type == "openHat")
         }
-        #expect(setup.pads[12...].map { $0?.label } == ["Kick", "Rimshot", "Closed hat", "Open hat"])
+        let bottomRow: [String] = setup.pads[12...].map { $0?.label ?? "" }
+        #expect(bottomRow == ["Kick", "Rimshot", "Closed hat", "Open hat"])
         // Each row's snare and hats are different hits.
         #expect(Set(stride(from: 1, to: 16, by: 4).compactMap { setup.pads[$0]?.note }).count == 4)
         #expect(Set(stride(from: 2, to: 16, by: 4).compactMap { setup.pads[$0]?.note }).count == 4)
@@ -131,13 +132,14 @@ import Testing
         // Every hat cuts the open hats other than itself; kicks and snares cut nothing.
         #expect(setup.pads[14]?.cuts == [3, 7, 11, 15])
         #expect(setup.pads[15]?.cuts == [3, 7, 11])
-        #expect(setup.pads[12]?.cuts == [])
+        #expect(setup.pads[12]?.cuts.isEmpty == true)
     }
 
     @Test func fillingPadsKeepsLayersAlternatesAndChannel() {
         let before = KitSetup(pads: KitSetup.standardDrums().pads, layers: 6, alternates: 2, channel: 10)
         let after = before.withPads(of: KitSetup.kickSnareHats())
         #expect(after.pads == KitSetup.kickSnareHats().pads)
-        #expect([after.layers, after.alternates, after.channel] == [6, 2, 10])
+        let kept: [Int] = [after.layers, after.alternates, after.channel]
+        #expect(kept == [6, 2, 10])
     }
 }
