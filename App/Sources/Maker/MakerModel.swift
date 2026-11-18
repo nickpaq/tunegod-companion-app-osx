@@ -414,14 +414,15 @@ final class MakerModel {
         typedName = ""
         Task {
             var seen = Set<String>()
+            var madeCount = 0, skipped = 0
             var ended = "The plugin had no further kit."
-            while let now = batch, self.host === host {
+            while batch != nil, self.host === host {
                 guard let name = host.presetName else { ended = "The plugin stopped naming its kit."; break }
                 guard seen.insert(name).inserted else { ended = "The kits came round to \(name) again."; break }
                 guard seen.count <= MOST_KITS else { ended = "Stopped at \(MOST_KITS) kits."; break }
                 kit = name
                 if FileManager.default.fileExists(atPath: folder.appendingPathComponent(instrumentFileName(name)).path) {
-                    batch = (now.made, now.skipped + 1)
+                    skipped += 1
                 } else {
                     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                         sampleEnded = done
@@ -429,8 +430,9 @@ final class MakerModel {
                     }
                     guard batch != nil else { ended = "Cancelled."; break }
                     guard problem == nil, made?.savedTo != nil else { ended = "Stopped at \(name)."; break }
-                    batch = (now.made + 1, now.skipped)
+                    madeCount += 1
                 }
+                batch = (madeCount, skipped)
                 pluginWindow.click(at: click)
                 // The plugin takes a moment to change kit; one that does not change has no further kit.
                 var changed = false
@@ -442,10 +444,11 @@ final class MakerModel {
                 guard changed else { break }
                 try? await Task.sleep(for: .seconds(KIT_LOAD_SECONDS))
             }
-            if batch == nil, ended != "Cancelled.", !ended.hasPrefix("Stopped") { ended = "Cancelled." }
-            let done = batch ?? (seen.count, 0)
-            let count = batch.map { "\($0.made) made" + ($0.skipped > 0 ? ", \($0.skipped) already there" : "") } ?? "\(max(0, done.0 - 1)) kits gone through"
-            batchSummary = "Every kit: \(count), \(placeName(folder)). \(ended)"
+            if batch == nil, !ended.hasPrefix("Stopped") { ended = "Cancelled." }
+            batchSummary = "Every kit: \(madeCount) made\(skipped > 0 ? ", \(skipped) already there" : ""), \(placeName(folder)). \(ended)"
+            #if DEBUG
+            FileHandle.standardError.write(Data((batchSummary ?? "").appending("\n").utf8))
+            #endif
             batch = nil
         }
     }
