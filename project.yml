@@ -23,6 +23,8 @@ targets:
     dependencies:
       - package: TuneGodLink
         product: TuneGodLinkKit
+      - package: TuneGodLink
+        product: TuneGodSamplerKit
     info:
       path: App/Info.plist
       properties:
@@ -31,6 +33,19 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSUIElement: true
         LSApplicationCategoryType: public.app-category.music
+        # The TuneGod instrument file Make instrument writes; the iPhone app owns the type.
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: app.tunegod.instrument
+            UTTypeDescription: TuneGod Instrument
+            UTTypeConformsTo: [public.data, public.content]
+            UTTypeTagSpecification:
+              public.filename-extension: [tgi]
+              public.mime-type: [application/vnd.tunegod.instrument]
+    # Make instrument loads other makers' Audio Units into this app, which the hardened runtime refuses without this.
+    entitlements:
+      path: App/TuneGodCompanion.entitlements
+      properties:
+        com.apple.security.cs.disable-library-validation: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.tunegod.companion

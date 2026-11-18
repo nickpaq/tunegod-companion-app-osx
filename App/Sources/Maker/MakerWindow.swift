@@ -1,0 +1,287 @@
+// Make instrument: one window, top to bottom. Pick the plugin (its own window opens for choosing the kit), say which of its notes
+// falls on which pad, sample, listen to the result, then save it or AirDrop it to the phone.
+import SwiftUI
+import TuneGodSamplerKit
+
+struct MakerWindow: View {
+    @Bindable var model: MakerModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            PluginRow(model: model)
+            Divider()
+            HStack(alignment: .top, spacing: 18) {
+                PadGridView(model: model)
+                PadSettings(model: model)
+                    .frame(width: 250, alignment: .topLeading)
+            }
+            .disabled(model.isSampling)
+            AuditionRow(model: model)
+                .disabled(model.isSampling)
+            Divider()
+            SamplingRow(model: model)
+            if let problem = model.problem {
+                Label(problem, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let made = model.made {
+                Divider()
+                ResultSection(model: model, made: made)
+            }
+        }
+        .padding(18)
+        .frame(width: 668)
+        .fixedSize(horizontal: false, vertical: true)
+        .task { model.start() }
+        .onDisappear { model.stop() }
+    }
+}
+
+// MARK: - The plugin
+
+private struct PluginRow: View {
+    @Bindable var model: MakerModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Picker("Plugin", selection: $model.pluginID) {
+                    Text("Choose a plugin").tag(String?.none)
+                    ForEach(model.plugins) { plugin in
+                        Text(plugin.title).tag(String?.some(plugin.id))
+                    }
+                }
+                .frame(maxWidth: 360)
+                Picker("MIDI channel", selection: $model.setup.channel) {
+                    ForEach(1...16, id: \.self) { Text("\($0)").tag($0) }
+                }
+                .fixedSize()
+                .help("The channel the pads' notes are sent on. Instruments with several parts keep drums on channel 10.")
+                Spacer()
+                if model.loading {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("Show plugin window") { model.showPluginWindow() }
+                        .disabled(model.host == nil)
+                }
+            }
+            .disabled(model.isSampling)
+            Text(model.host == nil
+                 ? "Audio Unit instruments installed on this Mac. Choose the one to sample."
+                 : "Choose the kit in the plugin\u{2019}s window, then click the pads to hear what each one will record.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - The selected pad
+
+private struct PadSettings: View {
+    @Bindable var model: MakerModel
+
+    var body: some View {
+        let index = model.selectedPad
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Pad \(index + 1)").font(.headline)
+            if model.setup.pads[index] != nil {
+                let pad = Binding(get: { model.setup.pads[index] ?? PadSetup(note: 60, label: "") },
+                                  set: { model.setup.pads[index] = $0 })
+                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                    GridRow {
+                        Text("Label").foregroundStyle(.secondary)
+                        // Typing a drum's name sets the pad's Type with it (`PadSetup.rename`).
+                        TextField("Label", text: Binding(get: { pad.wrappedValue.label }, set: { model.setup.pads[index]?.rename($0) }))
+                            .labelsHidden()
+                    }
+                    GridRow {
+                        Text("Note").foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Stepper(value: pad.note, in: 0...127) {
+                                Text("\(pad.wrappedValue.note) · \(noteName(pad.wrappedValue.note))").monospacedDigit()
+                            }
+                            Toggle(model.learning ? "Play a key\u{2026}" : "Learn", isOn: $model.learning)
+                                .toggleStyle(.button)
+                                .help("Sets this pad\u{2019}s note to the next key played on a MIDI keyboard.")
+                        }
+                    }
+                    GridRow {
+                        Text("Type").foregroundStyle(.secondary)
+                        Picker("Type", selection: pad.type) {
+                            Text("None").tag(String?.none)
+                            ForEach(padTypes, id: \.id) { Text($0.label).tag(String?.some($0.id.rawValue)) }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                    GridRow {
+                        Text("Cuts").foregroundStyle(.secondary)
+                        CutsMenu(model: model, index: index)
+                    }
+                }
+                Button("Clear pad", role: .destructive) { model.clearPad(index) }
+            } else {
+                Text("This pad is empty. It will be empty on the phone too.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Use this pad") { model.usePad(index) }
+            }
+        }
+    }
+
+    /// The sound Types a pad can have: TuneGod's own, without the loops.
+    private var padTypes: [(id: CategoryId, label: String)] {
+        CATEGORIES.filter { !$0.id.rawValue.hasSuffix("Loop") && $0.id != .other }.map { ($0.id, $0.label) }
+    }
+}
+
+/// Which pads the selected pad silences when it plays (a closed hat cutting the open hat).
+private struct CutsMenu: View {
+    @Bindable var model: MakerModel
+    let index: Int
+
+    var body: some View {
+        let cuts = model.setup.pads[index]?.cuts ?? []
+        let names = cuts.compactMap { model.setup.pads[$0]?.label }
+        Menu(names.isEmpty ? "Nothing" : names.joined(separator: ", ")) {
+            ForEach(0..<16, id: \.self) { other in
+                if other != index, let pad = model.setup.pads[other] {
+                    Toggle(pad.label.isEmpty ? "Pad \(other + 1)" : pad.label, isOn: Binding(
+                        get: { cuts.contains(other) },
+                        set: { on in
+                            if on { model.setup.pads[index]?.cuts.append(other) } else { model.setup.pads[index]?.cuts.removeAll { $0 == other } }
+                        }))
+                }
+            }
+        }
+        .fixedSize()
+        .help("The pads this one silences when it plays.")
+    }
+}
+
+// MARK: - Hearing the pads
+
+/// How hard a click or a key plays a pad, and, once there is a result, whether the pads play it or the plugin.
+private struct AuditionRow: View {
+    @Bindable var model: MakerModel
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("Velocity")
+            Slider(value: $model.velocity, in: 1...127)
+                .labelsHidden()
+                .frame(width: 180)
+                .accessibilityLabel("Velocity")
+                .help("How hard a click or a key plays a pad. A MIDI keyboard plays at its own.")
+            Text("\(Int(model.velocity.rounded()))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                .frame(width: 30, alignment: .leading)
+            Spacer()
+            if model.made != nil {
+                Picker("Pads play", selection: $model.hearInstrument) {
+                    Text("The instrument").tag(true)
+                    Text("The plugin").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+                .help("The instrument is what the phone will play; the plugin is what it was sampled from.")
+            }
+        }
+    }
+}
+
+// MARK: - Sampling
+
+private struct SamplingRow: View {
+    @Bindable var model: MakerModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 18) {
+                Stepper("Velocity layers: \(model.setup.layerCount)", value: $model.setup.layers, in: 1...MAX_LAYERS)
+                    .help("How many strengths each pad is recorded at. More layers follow the plugin more closely and make a larger instrument.")
+                Stepper("Alternates: \(model.setup.alternateCount)", value: $model.setup.alternates, in: 1...MAX_ALTERNATES)
+                    .help("How many times each hit is recorded, for plugins that vary a hit each time it is played.")
+                Toggle("Real time", isOn: $model.realTime)
+                    .help("Records at playing speed. Turn it on for a plugin that sounds wrong when recorded faster.")
+            }
+            .disabled(model.isSampling)
+            if case .sampling(let done, let total, let label) = model.phase {
+                HStack(spacing: 12) {
+                    ProgressView(value: Double(done), total: Double(max(1, total)))
+                    Text(label.isEmpty ? "\(done) of \(total)" : "\(min(done + 1, total)) of \(total) · \(label)")
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 170, alignment: .leading)
+                    Button("Cancel") { model.cancelSampling() }
+                }
+            } else {
+                HStack(spacing: 12) {
+                    // The window's one prominent button is the next step: Sample, then AirDrop once there is a result.
+                    if model.made == nil {
+                        Button("Sample") { model.sample() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!model.canSample)
+                    } else {
+                        Button("Sample again") { model.sample() }
+                            .disabled(!model.canSample)
+                    }
+                    Text(estimate)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// How many hits will be recorded and roughly how long that takes at playing speed (about three seconds a hit).
+    private var estimate: String {
+        let count = model.setup.sampleCount
+        guard count > 0 else { return "No pad has a note." }
+        let seconds = count * 3
+        let time = seconds < 90 ? "\(seconds) seconds" : "\(Int((Double(seconds) / 60).rounded())) minutes"
+        return "\(count) hits. About \(time) in real time, much less otherwise."
+    }
+}
+
+// MARK: - The result
+
+private struct ResultSection: View {
+    @Bindable var model: MakerModel
+    let made: MadeInstrument
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(made.warnings + sizeWarning, id: \.self) { warning in
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 10) {
+                Text("Name")
+                TextField("Name", text: $model.name)
+                    .labelsHidden()
+                    .frame(width: 200)
+                Text(summary).font(.callout).foregroundStyle(.secondary)
+                Spacer()
+                Button("Save\u{2026}") { model.save() }
+                Button("AirDrop") { model.airDrop() }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    private var summary: String {
+        let pads = (made.instrument.pads ?? []).compactMap { $0 }
+        let size = ByteCountFormatter.string(fromByteCount: Int64(made.fileBytes), countStyle: .file)
+        return "\(pads.count) pads, \(made.audio.count) hits, \(size)"
+    }
+
+    private var sizeWarning: [String] {
+        guard made.decodedBytes > PHONE_MEMORY_WARNING_BYTES else { return [] }
+        let size = ByteCountFormatter.string(fromByteCount: Int64(made.decodedBytes), countStyle: .memory)
+        return ["This instrument takes about \(size) of the phone\u{2019}s memory while a project uses it. Fewer layers or alternates make it smaller."]
+    }
+}

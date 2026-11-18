@@ -89,6 +89,20 @@ import Testing
         #expect(kit.sampleCount == 64)
     }
 
+    @Test func renamingAPadToADrumsNameSetsItsType() {
+        var pad = PadSetup(note: 40, label: "Pad 1")
+        pad.rename("Snare 2")
+        #expect(pad.label == "Snare 2")
+        #expect(pad.type == "snare")
+    }
+
+    @Test func renamingAPadToAnotherNameKeepsTheTypeItHad() {
+        var pad = PadSetup(note: 37, label: "Rim", type: "perc")
+        pad.rename("Stick")
+        #expect(pad.label == "Stick")
+        #expect(pad.type == "perc")
+    }
+
     @Test func layersAndAlternatesAreKeptInRange() {
         var kit = KitSetup.standardDrums()
         kit.layers = 40

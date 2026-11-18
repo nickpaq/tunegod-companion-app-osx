@@ -119,7 +119,8 @@ public final class PluginHost: NoteRendering, @unchecked Sendable {
     /// Tells the plugin it is being rendered faster than real time, so one that streams its sounds from disk loads them as it goes.
     public var offline: Bool {
         get { unit.isRenderingOffline }
-        set { unit.isRenderingOffline = newValue }
+        // Under the lock: never while the plugin is in the middle of a block.
+        set { lock.withLockUnchecked { unit.isRenderingOffline = newValue } }
     }
 
     // MARK: Notes

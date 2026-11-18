@@ -8,3 +8,7 @@ DerivedData/
 .build-check.log
 .test-check.log
 TuneGodCompanion.xcodeproj/
+# Written by xcodegen from project.yml
+App/Info.plist
+App/TuneGodCompanion.entitlements
+Driver/Info.plist

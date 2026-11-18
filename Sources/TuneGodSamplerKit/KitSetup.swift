@@ -20,6 +20,13 @@ public struct PadSetup: Equatable, Sendable {
         self.type = type
         self.cuts = cuts
     }
+
+    /// Gives the pad a new label. One that names a drum ("Snare 2", "Open hat") sets the pad's Type with it; any other keeps the
+    /// Type the pad had.
+    public mutating func rename(_ label: String) {
+        self.label = label
+        if let named = tgiType(forLabel: label) { type = named }
+    }
 }
 
 public struct KitSetup: Equatable, Sendable {

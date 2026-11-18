@@ -15,8 +15,9 @@ public final class InstrumentPlayer {
     }
 
     public let instrument: TGIInstrument
-    private let engine = AVAudioEngine()
-    private let format: AVAudioFormat
+    /// Not private: the tests render it by hand instead of through the Mac's output.
+    let engine = AVAudioEngine()
+    let format: AVAudioFormat
     private var buffers: [String: AVAudioPCMBuffer] = [:]
     /// The voices, used in turn; each remembers the pad it last played so a cut can stop it.
     private var voices: [(node: AVAudioPlayerNode, pad: Int)] = []

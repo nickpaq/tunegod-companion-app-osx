@@ -1,11 +1,16 @@
 // TuneGod Companion: a menu-bar app that keeps the link to the iPhone open over the USB cable and carries it to the "TuneGod iPhone" audio
-// device (the driver) and the "TuneGod" MIDI ports.
+// device (the driver) and the "TuneGod" MIDI ports. Its menu also opens Make instrument (App/Sources/Maker), which samples a plugin
+// into a TuneGod instrument for the phone.
 import SwiftUI
 import TuneGodLinkKit
+
+/// The Make instrument window's scene.
+let MAKER_WINDOW = "maker"
 
 @main
 struct TuneGodCompanionApp: App {
     @State private var link = LinkController()
+    @State private var maker = MakerModel()
 
     var body: some Scene {
         MenuBarExtra {
@@ -14,6 +19,13 @@ struct TuneGodCompanionApp: App {
             Image(systemName: link.connected ? "iphone.radiowaves.left.and.right" : "iphone")
         }
         .menuBarExtraStyle(.window)
+
+        Window("Make instrument", id: MAKER_WINDOW) {
+            MakerWindow(model: maker)
+        }
+        .windowResizability(.contentSize)
+        // The app lives in the menu bar: the window opens from the menu (or at launch with `--make-instrument`).
+        .defaultLaunchBehavior(ProcessInfo.processInfo.arguments.contains("--make-instrument") ? .presented : .suppressed)
     }
 }
 
@@ -41,6 +53,7 @@ final class LinkController {
 
 struct LinkMenu: View {
     let link: LinkController
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -73,6 +86,12 @@ struct LinkMenu: View {
                   : "Audio driver not installed", systemImage: "speaker.wave.2")
                 .font(.callout)
                 .foregroundStyle(link.state.driverConnected ? .primary : .secondary)
+            Divider()
+            Button("Make instrument\u{2026}") {
+                openWindow(id: MAKER_WINDOW)
+                // A menu-bar app is not in front by itself.
+                NSApplication.shared.activate(ignoringOtherApps: true)
+            }
             Divider()
             Button("Quit") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")
