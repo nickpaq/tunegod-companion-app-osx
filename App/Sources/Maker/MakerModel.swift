@@ -54,6 +54,21 @@ func placeName(_ folder: URL) -> String {
     return "in \(folder.lastPathComponent)"
 }
 
+/// Whether `url` is in iCloud Drive.
+func isInICloud(_ url: URL) -> Bool {
+    guard let cloud = iCloudDrive() else { return false }
+    return url.standardizedFileURL.path.hasPrefix(cloud.standardizedFileURL.path + "/")
+}
+
+/// Gives back the Mac's copy of a file in iCloud Drive once iCloud has all of it: the file stays in iCloud (and in the folder, to
+/// be downloaded when opened) and takes no room on this Mac. False while it is still being uploaded, or when it cannot be done.
+func freeLocalCopy(_ url: URL) -> Bool {
+    // A new URL each time: a URL remembers the answers it was given.
+    let fresh = URL(fileURLWithPath: url.path)
+    guard (try? fresh.resourceValues(forKeys: [.ubiquitousItemIsUploadedKey]))?.ubiquitousItemIsUploaded == true else { return false }
+    return (try? FileManager.default.evictUbiquitousItem(at: fresh)) != nil
+}
+
 /// After the plugin has changed kit, how long it is given to load the kit's sounds before it is sampled.
 let KIT_LOAD_SECONDS = 5.0
 /// A run of Make every kit never makes more than this.
@@ -139,6 +154,11 @@ final class MakerModel {
     private(set) var batch: (made: Int, skipped: Int)?
     /// What the last run of Make every kit did, for the window.
     private(set) var batchSummary: String?
+    /// Instruments written in iCloud Drive whose copy on this Mac is still to be given back, once iCloud has them (`freeUploaded`).
+    private var toFree: [URL] = []
+    private var freeing: Task<Void, Never>?
+    /// How many instruments in iCloud Drive still take room on this Mac, waiting for iCloud to have them.
+    var waitingForICloud: Int { toFree.count }
     /// Told when the sampling in progress has ended (Make every kit waits on it).
     private var sampleEnded: CheckedContinuation<Void, Never>?
     /// The folder made instruments are written into (`madeInstrumentsFolder`), as the window shows it.
@@ -453,6 +473,24 @@ final class MakerModel {
         }
     }
 
+    // MARK: Room on this Mac
+
+    /// An instrument written in iCloud Drive does not stay on this Mac's disk (the user, 2026-11-18): once iCloud has it, the copy
+    /// here is given back. Looked at every few seconds until none is left.
+    private func freeWhenUploaded(_ url: URL) {
+        toFree.append(url)
+        guard freeing == nil else { return }
+        freeing = Task { [weak self] in
+            while let self, !self.toFree.isEmpty {
+                let waiting = self.toFree
+                let freed = await Task.detached { waiting.filter { freeLocalCopy($0) || !FileManager.default.fileExists(atPath: $0.path) } }.value
+                self.toFree.removeAll { freed.contains($0) }
+                if !self.toFree.isEmpty { try? await Task.sleep(for: .seconds(5)) }
+            }
+            self?.freeing = nil
+        }
+    }
+
     // MARK: The folder
 
     private func useFolder(_ url: URL?) {
@@ -512,6 +550,7 @@ final class MakerModel {
         case .success(let (instrument, player)):
             made = instrument
             self.player = player
+            if let url = instrument.savedTo, isInICloud(url) { freeWhenUploaded(url) }
             // Between the kits of a run the pads stay the plugin's.
             hearInstrument = batch == nil
             if let saveProblem = instrument.saveProblem {

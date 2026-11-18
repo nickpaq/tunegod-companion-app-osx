@@ -289,6 +289,10 @@ private struct EveryKitRow: View {
                     Button("Stop") { model.cancelSampling() }
                 }
             }
+            if model.waitingForICloud > 0 {
+                Text("\(model.waitingForICloud) \(model.waitingForICloud == 1 ? "instrument is" : "instruments are") going up to iCloud. Each leaves this Mac\u{2019}s disk once it is there; keep the companion open until then.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             if let batch = model.batch {
                 Text("Every kit: \(batch.made) made\(batch.skipped > 0 ? ", \(batch.skipped) already there" : ""). Now \(model.kit ?? "the next").")
                     .font(.callout).foregroundStyle(.secondary)
