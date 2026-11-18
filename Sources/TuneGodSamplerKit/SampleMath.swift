@@ -11,7 +11,7 @@ public struct CaptureSettings: Sendable {
     /// A hit has ended when it has stayed silent this long.
     public var silenceSeconds = 0.3
     /// The longest a hit may be; one still sounding then is faded and reported as cut short.
-    public var maxSeconds = 10.0
+    public var maxSeconds = 12.0
     /// Frames kept before the first sound.
     public var leadInFrames = 24
     /// Kept after the last sound.
