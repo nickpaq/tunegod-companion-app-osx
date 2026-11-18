@@ -90,7 +90,7 @@ built from, with its numbers (threshold, lengths, trimming), is `docs/superpower
 | The kit's name | `PresetName.swift` (`PluginHost.presetName`) | Unit-tested; read correctly from the user's drum plugin's first kit |
 | A plugin's pad setup, kept between runs | `PadSetupStore.swift` | Unit-tested; the user's drum plugin's setup is saved on the Mac |
 | Command-line tool | `Sources/tgsample/` | `list`, `setup "<plugin>" <map.txt>`, `make "<plugin>" <out.tgi>` |
-| The window | `App/Sources/Maker/` | Builds; **no button was clicked by a person**, and the kit's name following a kit chosen by hand has not been seen |
+| The window | `App/Sources/Maker/` | Builds and opens with the user's drum plugin; its title bar showed the first kit's name (one screenshot, 2026-11-18). **No button was clicked by a person**, and the name following a kit chosen by hand has not been seen |
 
 ## Browse, hear, one button (2026-11-18, the user's request)
 The user asked to browse the plugin's presets, hear a kit and make its `.tgi` with one button, "exactly how it worked for the test"
@@ -104,6 +104,9 @@ instrument, the file carrying the preset's name.
   another name, and goes back to following when the kit changes. A plugin that does not name its kit leaves the plugin's name.
 - **One button:** Make instrument samples the kit and writes `<name>.tgi` on the Desktop (`freeInstrumentFile`: a taken name gets
   " 2", nothing is replaced). The result row has Show in Finder, Save as… and AirDrop.
+- **The button is also in the plugin's window** (`PluginWindowBar`, a title bar accessory): the drum plugin's window is large and
+  covers the maker's, so the kit's name, Make instrument, the progress and AirDrop sit in its title bar. The maker's window is
+  only needed to change the pads, the layers or the name.
 - **Remembered:** the plugin last used (it loads when the window opens) and each plugin's pad setup, in
   `~/Library/Application Support/TuneGod Companion/Pad setups/<plugin id>.json`, written whenever a pad, the layers, the
   alternates or the channel change. The setup the test instrument was made with (`~/Developer/tgi-test/ad2-map.txt`: crashes,
@@ -155,4 +158,9 @@ instrument, the file carrying the preset's name.
 - Tests: `TUNEGOD_CORE=<TuneGodCore with the TGI code> swift test --filter TuneGodSamplerKitTests`. The default path works once
   `~/Developer/tunegod-native` is on a commit that has `Sources/TuneGodCore/TGI`.
 - The app: `TUNEGOD_CORE=… xcodegen generate`, then build `TuneGodCompanion`. `--make-instrument` opens the window at launch;
-  debug builds also take `--plugin <part of a name>`, `--channel <n>` and `--sample` (press Sample once the plugin has loaded).
+  debug builds also take `--plugin <part of a name>`, `--channel <n>` and `--sample` (press Make instrument once the plugin has
+  loaded). **Put `--make-instrument` last:** a launch whose last argument is a bare word (`--plugin Name`) opens no window, because
+  the system takes the word for a file to open. The plugin last used loads by itself, so `--make-instrument` alone is enough.
+- On the Mac the worktree is `~/Developer/tgc-kits`; `~/Developer/tgi-test/kits-test.sh`, `kits-make.sh` and `kits-app.sh` pull the
+  branch and run the tests, a sampling of the drum plugin, and the app's build. An app that has a plugin loaded does not end on a
+  plain `kill`; quit it from its menu (or `kill -9`).
