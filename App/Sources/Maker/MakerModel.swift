@@ -274,7 +274,7 @@ final class MakerModel {
         let setup = setup, realTime = realTime, cancel = cancel
         // The kit as the plugin names it at this moment, not a second ago.
         kit = host.presetName
-        let name = name, madeWith = host.info.title, kit = kit
+        let name = name, madeWith = host.info.title, kitName = kit
         problem = nil
         made = nil
         player?.stopAll()
@@ -297,7 +297,7 @@ final class MakerModel {
                 let player = try InstrumentPlayer(instrument: built.instrument, audio: built.audio)
                 let file = try writeTGI(built.instrument, audio: built.audio)
                 var made = MadeInstrument(instrument: built.instrument, audio: built.audio, warnings: built.warnings,
-                                          fileBytes: file.count, decodedBytes: player.decodedBytes, kit: kit)
+                                          fileBytes: file.count, decodedBytes: player.decodedBytes, kit: kitName)
                 // The instrument is written straight away, under its name, beside any earlier one of that name.
                 do {
                     let url = freeInstrumentFile(built.instrument.name, in: madeInstrumentsFolder())
