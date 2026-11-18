@@ -164,6 +164,9 @@ instrument, the file carrying the preset's name.
   debug builds also take `--plugin <part of a name>`, `--channel <n>` and `--sample` (press Make instrument once the plugin has
   loaded). **Put `--make-instrument` last:** a launch whose last argument is a bare word (`--plugin Name`) opens no window, because
   the system takes the word for a file to open. The plugin last used loads by itself, so `--make-instrument` alone is enough.
+- **TuneGodCore must have `TGI_PAD_VOICES`** (the phone repository's branch `claude/serene-lamport-o2lucs`, 3.209.1): a pad of an
+  instrument sounds at most twice at once on the phone, and the preview here (`InstrumentPlayer.play`) follows that number. On the
+  Mac `TUNEGOD_CORE` is `~/Developer/tg-tgi-kits/ios/TuneGodCore`, a worktree of that branch.
 - On the Mac the worktree is `~/Developer/tgc-kits`; `~/Developer/tgi-test/kits-test.sh`, `kits-make.sh` and `kits-app.sh` pull the
   branch and run the tests, a sampling of the drum plugin, and the app's build. An app that has a plugin loaded does not end on a
   plain `kill`; quit it from its menu (or `kill -9`).
