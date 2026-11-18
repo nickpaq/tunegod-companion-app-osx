@@ -62,4 +62,37 @@ public struct KitSetup: Equatable, Sendable, Codable {
         ]
         return KitSetup(pads: notes.map { PadSetup(note: $0.0, label: $0.1, type: tgiType(forLabel: $0.1), cuts: $0.2) })
     }
+
+    /// Only kick, snare and hats, on the drum plugin's standard note map: every row is kick, a snare hit, a closed hat and an open
+    /// hat, each row with different hits. The bottom row is kick, rimshot, closed hat, open hat. The open hats run from tight (row
+    /// 2) to wide (row 1), as long as the plugin rings them (0.5 to 4.3 s at full velocity); every closed hat and every open hat
+    /// cuts the open hats, as one pair of hats would.
+    public static func kickSnareHats() -> KitSetup {
+        let rows: [[(Int, String)]] = [
+            [(36, "Kick"), (42, "Sidestick"), (48, "Hat foot"), (57, "Wide open hat")],
+            [(36, "Kick"), (43, "Snare 2"), (50, "Closed hat 3"), (54, "Tight open hat")],
+            [(36, "Kick"), (38, "Snare"), (51, "Closed hat 2"), (55, "Half open hat")],
+            [(36, "Kick"), (39, "Rimshot"), (49, "Closed hat"), (56, "Open hat")],
+        ]
+        let openHats = [3, 7, 11, 15]
+        let pads = rows.joined().enumerated().map { index, pad in
+            let column = index % 4
+            return PadSetup(note: pad.0, label: pad.1, type: tgiType(forLabel: pad.1),
+                            cuts: column >= 2 ? openHats.filter { $0 != index } : [])
+        }
+        return KitSetup(pads: pads)
+    }
+
+    /// The pad layouts the window offers, by name.
+    public static let presets: [(name: String, setup: KitSetup)] = [
+        ("Standard drums", standardDrums()),
+        ("Kick, snare and hats", kickSnareHats()),
+    ]
+
+    /// This setup with its pads replaced by `preset`'s; the layers, alternates and channel stay.
+    public func withPads(of preset: KitSetup) -> KitSetup {
+        var setup = self
+        setup.pads = preset.pads
+        return setup
+    }
 }

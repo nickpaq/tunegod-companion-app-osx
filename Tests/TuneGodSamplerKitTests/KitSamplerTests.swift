@@ -110,3 +110,34 @@ import Testing
         #expect(kit.sampleCount == 16 * 8 * 4)
     }
 }
+
+final class PadPresetTests: XCTestCase {
+    func testKickSnareHatsFillsEveryPadWithKickSnareAndHats() {
+        let setup = KitSetup.kickSnareHats()
+        XCTAssertEqual(setup.pads.count, TGI_PADS)
+        let pads = setup.pads.compactMap { $0 }
+        XCTAssertEqual(pads.count, TGI_PADS)
+        for row in 0..<4 {
+            XCTAssertEqual(setup.pads[row * 4]?.type, "kick")
+            XCTAssertEqual(setup.pads[row * 4 + 1]?.type, "snare")
+            XCTAssertEqual(setup.pads[row * 4 + 2]?.type, "closedHat")
+            XCTAssertEqual(setup.pads[row * 4 + 3]?.type, "openHat")
+        }
+        XCTAssertEqual(setup.pads[12...].map { $0?.label }, ["Kick", "Rimshot", "Closed hat", "Open hat"])
+        // Each row's snare and hats are different hits.
+        XCTAssertEqual(Set(stride(from: 1, to: 16, by: 4).compactMap { setup.pads[$0]?.note }).count, 4)
+        XCTAssertEqual(Set(stride(from: 2, to: 16, by: 4).compactMap { setup.pads[$0]?.note }).count, 4)
+        XCTAssertEqual(Set(stride(from: 3, to: 16, by: 4).compactMap { setup.pads[$0]?.note }).count, 4)
+        // Every hat cuts the open hats other than itself; kicks and snares cut nothing.
+        XCTAssertEqual(setup.pads[14]?.cuts, [3, 7, 11, 15])
+        XCTAssertEqual(setup.pads[15]?.cuts, [3, 7, 11])
+        XCTAssertEqual(setup.pads[12]?.cuts, [])
+    }
+
+    func testFillingPadsKeepsLayersAlternatesAndChannel() {
+        let before = KitSetup(pads: KitSetup.standardDrums().pads, layers: 6, alternates: 2, channel: 10)
+        let after = before.withPads(of: KitSetup.kickSnareHats())
+        XCTAssertEqual(after.pads, KitSetup.kickSnareHats().pads)
+        XCTAssertEqual([after.layers, after.alternates, after.channel], [6, 2, 10])
+    }
+}

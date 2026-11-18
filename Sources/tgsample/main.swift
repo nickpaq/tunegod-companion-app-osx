@@ -1,8 +1,9 @@
 // tgsample: the instrument maker without its window, for testing on the Mac.
 //   tgsample list
-//   tgsample setup "<plugin>" <map.txt>
+//   tgsample setup "<plugin>" <map.txt | preset name>
 //   tgsample make "<plugin>" <out.tgi> [--channel n] [--layers n] [--alternates n] [--realtime] [--name "<name>"] [--wait s]
-// `setup` keeps a pad setup written as text (`kitSetup(fromMap:)`) as that plugin's, for this tool and the window alike.
+// `setup` keeps a pad setup written as text (`kitSetup(fromMap:)`), or one of `KitSetup.presets` by name ("Kick, snare and hats"),
+// as that plugin's, for this tool and the window alike.
 // `make` samples the plugin whose name contains <plugin> as it stands when it is loaded (its own first preset: the window is where
 // a kit is chosen), on the plugin's saved pad setup or else the standard drum notes, names the instrument after the plugin's
 // preset, and reads the file back. `--wait` gives the plugin that many seconds to load its sounds first (default 2).
@@ -43,10 +44,11 @@ case "list":
     for plugin in installedInstruments() { print(plugin.title) }
 
 case "setup":
-    guard args.count == 3 else { fail("usage: tgsample setup \"<plugin>\" <map.txt>", code: 2) }
+    guard args.count == 3 else { fail("usage: tgsample setup \"<plugin>\" <map.txt | preset name>", code: 2) }
     let plugin = find(args[1])
     do {
-        let setup = try kitSetup(fromMap: try String(contentsOfFile: args[2], encoding: .utf8))
+        let setup = try KitSetup.presets.first(where: { $0.name.lowercased() == args[2].lowercased() }).map { $0.setup }
+            ?? kitSetup(fromMap: try String(contentsOfFile: args[2], encoding: .utf8))
         try savePadSetup(setup, for: plugin)
         print("\(plugin.title): \(setup.pads.compactMap { $0 }.count) pads kept as its setup.")
     } catch {

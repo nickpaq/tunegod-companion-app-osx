@@ -60,6 +60,13 @@ private struct PluginRow: View {
                 }
                 .fixedSize()
                 .help("The channel the pads' notes are sent on. Instruments with several parts keep drums on channel 10.")
+                Menu("Fill pads") {
+                    ForEach(KitSetup.presets, id: \.name) { preset in
+                        Button(preset.name) { model.setup = model.setup.withPads(of: preset.setup) }
+                    }
+                }
+                .fixedSize()
+                .help("Puts a ready-made layout on all sixteen pads. Kick, snare and hats follows the drum plugin\u{2019}s standard note map.")
                 Spacer()
                 if model.loading {
                     ProgressView().controlSize(.small)
