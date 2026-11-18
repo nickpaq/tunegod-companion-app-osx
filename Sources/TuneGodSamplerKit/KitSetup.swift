@@ -75,9 +75,11 @@ public struct KitSetup: Equatable, Sendable, Codable {
             [(36, "Kick"), (39, "Rimshot"), (49, "Closed hat"), (56, "Open hat")],
         ]
         let openHats = [3, 7, 11, 15]
+        // The Type goes by column: a label such as "Sidestick" names no drum.
+        let types: [CategoryId] = [.kick, .snare, .closedHat, .openHat]
         let pads = rows.joined().enumerated().map { index, pad in
             let column = index % 4
-            return PadSetup(note: pad.0, label: pad.1, type: tgiType(forLabel: pad.1),
+            return PadSetup(note: pad.0, label: pad.1, type: types[column].rawValue,
                             cuts: column >= 2 ? openHats.filter { $0 != index } : [])
         }
         return KitSetup(pads: pads)
