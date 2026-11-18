@@ -174,7 +174,7 @@ final class MakerModel {
                 #endif
                 setupIsFor = plugin.id
                 selectedPad = min(selectedPad, TGI_PADS - 1)
-                pluginWindow.show(loaded)
+                pluginWindow.show(loaded, bar: PluginWindowBar(model: self))
                 watchKit(of: loaded)
                 #if DEBUG
                 if sampleOnceLoaded {
@@ -189,7 +189,7 @@ final class MakerModel {
     }
 
     func showPluginWindow() {
-        if let host { pluginWindow.show(host) }
+        if let host { pluginWindow.show(host, bar: PluginWindowBar(model: self)) }
     }
 
     /// Follows the kit chosen in the plugin's window: its name is asked of the plugin about once a second, less often of a plugin
