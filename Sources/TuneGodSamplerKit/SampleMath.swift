@@ -21,6 +21,8 @@ public struct CaptureSettings: Sendable {
     /// Before a hit, the plugin must have been silent this long (the last hit's tail has gone), waited for at most `settleMaxSeconds`.
     public var settleSeconds = 0.1
     public var settleMaxSeconds = 5.0
+    /// A note that has made no sound by now makes none.
+    public var startSeconds = 1.0
 
     public init() {}
 }
