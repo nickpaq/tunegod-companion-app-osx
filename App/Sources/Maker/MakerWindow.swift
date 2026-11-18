@@ -221,6 +221,7 @@ private struct SamplingRow: View {
                     .foregroundStyle(.secondary)
             }
             .disabled(model.isSampling || model.host == nil)
+            EveryKitRow(model: model)
             if case .sampling(let done, let total, let label) = model.phase {
                 HStack(spacing: 12) {
                     ProgressView(value: Double(done), total: Double(max(1, total)))
@@ -259,6 +260,46 @@ private struct SamplingRow: View {
     }
 }
 
+/// Where instruments are written, and Make every kit: the plugin's kits one after another, by repeating the click the user shows.
+private struct EveryKitRow: View {
+    @Bindable var model: MakerModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("Save")
+                Menu(placeName(model.folder)) {
+                    Toggle("On the Desktop", isOn: Binding(get: { model.folderIsDesktop }, set: { _ in model.useDesktop() }))
+                    Toggle("In iCloud Drive (TuneGod Instruments)", isOn: Binding(get: { model.folderIsICloud }, set: { _ in model.useICloud() }))
+                        .disabled(!model.iCloudAvailable)
+                    Divider()
+                    Button("Choose a folder\u{2026}") { model.chooseFolder() }
+                }
+                .fixedSize()
+                .help("Where a made instrument\u{2019}s file is written. A folder in iCloud Drive shows in the Files app on the phone.")
+                Spacer()
+                Button(model.learningNextKit ? "Click it in the plugin\u{2026}" : model.nextKitClick == nil ? "Show the next-kit button\u{2026}" : "Next-kit button set")
+                    { model.learnNextKitClick() }
+                    .help("Then click, in the plugin\u{2019}s window, the button that goes to its next kit. Make every kit repeats that click.")
+                if model.batch == nil {
+                    Button("Make every kit") { model.makeEveryKit() }
+                        .disabled(!model.canMakeEveryKit)
+                        .help("Makes this kit, goes to the next and makes it, until the plugin has no further kit. Kits already in the folder are passed over.")
+                } else {
+                    Button("Stop") { model.cancelSampling() }
+                }
+            }
+            if let batch = model.batch {
+                Text("Every kit: \(batch.made) made\(batch.skipped > 0 ? ", \(batch.skipped) already there" : ""). Now \(model.kit ?? "the next").")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else if let summary = model.batchSummary {
+                Text(summary).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .disabled(model.host == nil)
+    }
+}
+
 // MARK: - The result
 
 private struct ResultSection: View {
@@ -274,7 +315,7 @@ private struct ResultSection: View {
             }
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(made.savedTo.map { "\($0.lastPathComponent) is on the Desktop" } ?? made.instrument.name)
+                    Text(made.savedTo.map { "\($0.lastPathComponent) is \(placeName($0.deletingLastPathComponent()))" } ?? made.instrument.name)
                         .font(.headline)
                     Text(summary).font(.callout).foregroundStyle(.secondary)
                 }

@@ -47,7 +47,48 @@ final class PluginWindow {
         }
     }
 
+    // MARK: Clicks in the plugin's view
+
+    private var clickMonitor: Any?
+
+    /// A point of the plugin's view, measured from its top left, as the window has it.
+    private func windowPoint(_ point: CGPoint, in content: NSView) -> NSPoint {
+        content.convert(NSPoint(x: point.x, y: content.isFlipped ? point.y : content.bounds.height - point.y), to: nil)
+    }
+
+    /// Tells `found` where the next click inside the plugin's view lands (points from its top left). The click goes on to the
+    /// plugin as any click does.
+    func watchNextClick(_ found: @escaping (CGPoint) -> Void) {
+        stopWatchingClick()
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self, let window = self.window, event.window === window, let content = window.contentView else { return event }
+            let at = content.convert(event.locationInWindow, from: nil)
+            guard content.bounds.contains(at) else { return event }
+            self.stopWatchingClick()
+            found(CGPoint(x: at.x, y: content.isFlipped ? at.y : content.bounds.height - at.y))
+            return event
+        }
+    }
+
+    func stopWatchingClick() {
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        clickMonitor = nil
+    }
+
+    /// Clicks the plugin's view at `point` (points from its top left), as the mouse would. The pointer does not move.
+    func click(at point: CGPoint) {
+        guard let window, let content = window.contentView else { return }
+        let location = windowPoint(point, in: content)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            guard let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                                 pressure: type == .leftMouseDown ? 1 : 0) else { continue }
+            window.sendEvent(event)
+        }
+    }
+
     func close() {
+        stopWatchingClick()
         window?.close()
         window = nil
         shownFor = nil
@@ -61,13 +102,23 @@ struct PluginWindowBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if case .sampling(let done, let total, _) = model.phase {
+            if model.learningNextKit {
+                Text("Click the button that goes to the next kit").foregroundStyle(.secondary)
+                Button("Cancel") { model.learnNextKitClick() }
+            } else if let batch = model.batch {
+                if case .sampling(let done, let total, _) = model.phase {
+                    ProgressView(value: Double(done), total: Double(max(1, total)))
+                        .frame(width: 80)
+                }
+                Text("\(model.kit ?? "") · kit \(batch.made + batch.skipped + 1)").monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
+                Button("Stop") { model.cancelSampling() }
+            } else if case .sampling(let done, let total, _) = model.phase {
                 ProgressView(value: Double(done), total: Double(max(1, total)))
                     .frame(width: 120)
                 Text("\(done) of \(total)").monospacedDigit().foregroundStyle(.secondary)
                 Button("Cancel") { model.cancelSampling() }
             } else if model.madeIsCurrent, let made = model.made {
-                Text(made.savedTo.map { "\($0.lastPathComponent) is on the Desktop" } ?? made.instrument.name)
+                Text(made.savedTo.map { "\($0.lastPathComponent) is \(placeName($0.deletingLastPathComponent()))" } ?? made.instrument.name)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Button("Make again") { model.sample() }
@@ -81,7 +132,7 @@ struct PluginWindowBar: View {
                 Button("Make instrument") { model.sample() }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.canSample)
-                    .help("Samples this kit and writes it on the Desktop as a TuneGod instrument with the kit\u{2019}s name.")
+                    .help("Samples this kit and writes it \(placeName(model.folder)) as a TuneGod instrument with the kit\u{2019}s name.")
             }
         }
         .controlSize(.small)

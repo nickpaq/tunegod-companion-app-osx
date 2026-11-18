@@ -20,11 +20,44 @@ struct MadeInstrument {
     var saveProblem: String?
 }
 
-/// The folder a made instrument is written into: the Desktop, where it is at hand for AirDrop.
-func madeInstrumentsFolder() -> URL {
+/// Where the chosen folder for made instruments is remembered (its path); unset: the Desktop.
+private let FOLDER_KEY = "maker.folder"
+
+private func desktopFolder() -> URL {
     FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
         ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop", isDirectory: true)
 }
+
+/// iCloud Drive on this Mac, or nil when it is not set up.
+private func iCloudDrive() -> URL? {
+    let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs", isDirectory: true)
+    return FileManager.default.fileExists(atPath: url.path) ? url : nil
+}
+
+/// The folder in iCloud Drive that made instruments go to, where the phone's Files app shows them.
+func iCloudInstrumentsFolder() -> URL? {
+    iCloudDrive()?.appendingPathComponent("TuneGod Instruments", isDirectory: true)
+}
+
+/// The folder a made instrument is written into: the one the user chose, or the Desktop, where it is at hand for AirDrop.
+func madeInstrumentsFolder() -> URL {
+    UserDefaults.standard.string(forKey: FOLDER_KEY).map { URL(fileURLWithPath: $0, isDirectory: true) } ?? desktopFolder()
+}
+
+/// Where `folder` is, in words for the window: "on the Desktop", "in iCloud Drive", "in Kits".
+func placeName(_ folder: URL) -> String {
+    let path = folder.standardizedFileURL.path
+    if path == desktopFolder().standardizedFileURL.path { return "on the Desktop" }
+    if let cloud = iCloudDrive(), path.hasPrefix(cloud.standardizedFileURL.path) {
+        return path == iCloudInstrumentsFolder()?.standardizedFileURL.path ? "in iCloud Drive" : "in iCloud Drive, \(folder.lastPathComponent)"
+    }
+    return "in \(folder.lastPathComponent)"
+}
+
+/// After the plugin has changed kit, how long it is given to load the kit's sounds before it is sampled.
+let KIT_LOAD_SECONDS = 5.0
+/// A run of Make every kit never makes more than this.
+let MOST_KITS = 1000
 
 /// A file in `folder` for an instrument called `name` that replaces nothing: "Name.tgi", or "Name 2.tgi" and so on when taken.
 func freeInstrumentFile(_ name: String, in folder: URL) -> URL {
@@ -97,11 +130,25 @@ final class MakerModel {
     private var midi: MIDIInput?
     private let pluginWindow = PluginWindow()
     private var kitWatch: Task<Void, Never>?
+    /// Where a click in the plugin's window goes to its next kit (points from the top left of the plugin's view), shown once by
+    /// the user and kept for the plugin. Make every kit repeats it.
+    private(set) var nextKitClick: CGPoint?
+    /// The next click in the plugin's window is being waited for, to be kept as `nextKitClick`.
+    private(set) var learningNextKit = false
+    /// Make every kit is running: how many it has made and how many it found already made.
+    private(set) var batch: (made: Int, skipped: Int)?
+    /// What the last run of Make every kit did, for the window.
+    private(set) var batchSummary: String?
+    /// Told when the sampling in progress has ended (Make every kit waits on it).
+    private var sampleEnded: CheckedContinuation<Void, Never>?
+    /// The folder made instruments are written into (`madeInstrumentsFolder`), as the window shows it.
+    private(set) var folder = madeInstrumentsFolder()
     private let cancel = OSAllocatedUnfairLock(initialState: false)
 
     var plugin: PluginInfo? { plugins.first { $0.id == pluginID } }
     var isSampling: Bool { phase != .setup }
-    var canSample: Bool { host != nil && !isSampling && setup.sampleCount > 0 }
+    var canSample: Bool { host != nil && !isSampling && batch == nil && setup.sampleCount > 0 }
+    var canMakeEveryKit: Bool { canSample && nextKitClick != nil && kit != nil }
     /// The result on show was made from the kit the plugin has now.
     var madeIsCurrent: Bool { made != nil && made?.kit == kit }
 
@@ -147,6 +194,10 @@ final class MakerModel {
     private func loadPlugin() {
         kitWatch?.cancel()
         kitWatch = nil
+        batch = nil
+        nextKitClick = nil
+        learningNextKit = false
+        pluginWindow.stopWatchingClick()
         live?.stop()
         live = nil
         pluginWindow.close()
@@ -173,13 +224,17 @@ final class MakerModel {
                 if let launchChannel { setup.channel = launchChannel }
                 #endif
                 setupIsFor = plugin.id
+                nextKitClick = UserDefaults.standard.string(forKey: Self.nextKitKey(plugin)).flatMap { text in
+                    let parts = text.split(separator: ",").compactMap { Double($0) }
+                    return parts.count == 2 ? CGPoint(x: parts[0], y: parts[1]) : nil
+                }
                 selectedPad = min(selectedPad, TGI_PADS - 1)
                 pluginWindow.show(loaded, bar: PluginWindowBar(model: self))
                 watchKit(of: loaded)
                 #if DEBUG
                 if sampleOnceLoaded {
                     sampleOnceLoaded = false
-                    sample()
+                    if ProcessInfo.processInfo.arguments.contains("--every-kit") { makeEveryKit() } else { sample() }
                 }
                 #endif
             } catch {
@@ -269,8 +324,14 @@ final class MakerModel {
 
     // MARK: Sampling
 
-    func sample() {
-        guard let host, canSample else { return }
+    func sample() { sample(inBatch: false) }
+
+    private func sample(inBatch: Bool) {
+        guard let host, inBatch ? (!isSampling && setup.sampleCount > 0) : canSample else {
+            sampleEnded?.resume()
+            sampleEnded = nil
+            return
+        }
         let setup = setup, realTime = realTime, cancel = cancel
         // The kit as the plugin names it at this moment, not a second ago.
         kit = host.presetName
@@ -315,7 +376,119 @@ final class MakerModel {
     }
 
     func cancelSampling() {
+        batch = nil
         cancel.withLock { $0 = true }
+    }
+
+    // MARK: Every kit
+
+    private static func nextKitKey(_ plugin: PluginInfo) -> String { "maker.nextKit.\(plugin.id)" }
+
+    /// The user shows where the plugin's next-kit button is: their next click in the plugin's window is kept (and does what it
+    /// does there). Called again while waiting, it stops waiting.
+    func learnNextKitClick() {
+        guard let host, !isSampling, batch == nil else { return }
+        if learningNextKit {
+            learningNextKit = false
+            pluginWindow.stopWatchingClick()
+            return
+        }
+        learningNextKit = true
+        pluginWindow.show(host, bar: PluginWindowBar(model: self))
+        pluginWindow.watchNextClick { [weak self] point in
+            guard let self, self.learningNextKit, self.host === host else { return }
+            self.learningNextKit = false
+            self.nextKitClick = point
+            UserDefaults.standard.set("\(point.x),\(point.y)", forKey: Self.nextKitKey(host.info))
+        }
+    }
+
+    /// Makes the kit the plugin has, clicks to its next kit, and so on until the plugin has no other kit to show (the name stops
+    /// changing, or one comes round again), or Cancel. A kit whose file is already in the folder is not made again, so a run that
+    /// was stopped carries on where it was.
+    func makeEveryKit() {
+        guard let host, let click = nextKitClick, canSample else { return }
+        batch = (0, 0)
+        batchSummary = nil
+        problem = nil
+        typedName = ""
+        Task {
+            var seen = Set<String>()
+            var ended = "The plugin had no further kit."
+            while let now = batch, self.host === host {
+                guard let name = host.presetName else { ended = "The plugin stopped naming its kit."; break }
+                guard seen.insert(name).inserted else { ended = "The kits came round to \(name) again."; break }
+                guard seen.count <= MOST_KITS else { ended = "Stopped at \(MOST_KITS) kits."; break }
+                kit = name
+                if FileManager.default.fileExists(atPath: folder.appendingPathComponent(instrumentFileName(name)).path) {
+                    batch = (now.made, now.skipped + 1)
+                } else {
+                    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                        sampleEnded = done
+                        sample(inBatch: true)
+                    }
+                    guard batch != nil else { ended = "Cancelled."; break }
+                    guard problem == nil, made?.savedTo != nil else { ended = "Stopped at \(name)."; break }
+                    batch = (now.made + 1, now.skipped)
+                }
+                pluginWindow.click(at: click)
+                // The plugin takes a moment to change kit; one that does not change has no further kit.
+                var changed = false
+                for _ in 0..<40 where !changed && batch != nil {
+                    try? await Task.sleep(for: .milliseconds(200))
+                    changed = host.presetName != name
+                }
+                guard batch != nil else { ended = "Cancelled."; break }
+                guard changed else { break }
+                try? await Task.sleep(for: .seconds(KIT_LOAD_SECONDS))
+            }
+            if batch == nil, ended != "Cancelled.", !ended.hasPrefix("Stopped") { ended = "Cancelled." }
+            let done = batch ?? (seen.count, 0)
+            let count = batch.map { "\($0.made) made" + ($0.skipped > 0 ? ", \($0.skipped) already there" : "") } ?? "\(max(0, done.0 - 1)) kits gone through"
+            batchSummary = "Every kit: \(count), \(placeName(folder)). \(ended)"
+            batch = nil
+        }
+    }
+
+    // MARK: The folder
+
+    private func useFolder(_ url: URL?) {
+        if let url {
+            UserDefaults.standard.set(url.path, forKey: FOLDER_KEY)
+        } else {
+            UserDefaults.standard.removeObject(forKey: FOLDER_KEY)
+        }
+        folder = madeInstrumentsFolder()
+    }
+
+    var folderIsDesktop: Bool { placeName(folder) == "on the Desktop" }
+    var folderIsICloud: Bool { folder.standardizedFileURL.path == iCloudInstrumentsFolder()?.standardizedFileURL.path }
+    var iCloudAvailable: Bool { iCloudInstrumentsFolder() != nil }
+
+    func useDesktop() { useFolder(nil) }
+
+    /// Instruments go to "TuneGod Instruments" in iCloud Drive, made if it is not there.
+    func useICloud() {
+        guard let url = iCloudInstrumentsFolder() else {
+            problem = "iCloud Drive is not set up on this Mac."
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            useFolder(url)
+        } catch {
+            problem = "The folder could not be made in iCloud Drive. \(error.localizedDescription)"
+        }
+    }
+
+    func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = folder
+        panel.prompt = "Save here"
+        if panel.runModal() == .OK, let url = panel.url { useFolder(url) }
     }
 
     private func progressed(_ done: Int, _ total: Int, _ label: String) {
@@ -328,13 +501,18 @@ final class MakerModel {
         host.offline = false
         host.sampling = false
         phase = .setup
+        defer {
+            sampleEnded?.resume()
+            sampleEnded = nil
+        }
         switch outcome {
         case .success(let (instrument, player)):
             made = instrument
             self.player = player
-            hearInstrument = true
+            // Between the kits of a run the pads stay the plugin's.
+            hearInstrument = batch == nil
             if let saveProblem = instrument.saveProblem {
-                problem = "The instrument was made but could not be written on the Desktop. \(saveProblem) Use Save as\u{2026} to put it somewhere else."
+                problem = "The instrument was made but could not be written \(placeName(folder)). \(saveProblem) Use Save as\u{2026} to put it somewhere else."
             }
         case .failure(let error):
             if !(error is SamplingCancelled) { problem = error.localizedDescription }
