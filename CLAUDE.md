@@ -10,3 +10,17 @@ The iOS app is `nickpaq/tunegod-native`.
 - **Git:** commits end with the Co-Authored-By and Claude-Session lines; no model names in commits, PRs or code.
 - Building and signing happen on the user's Mac (Desktop Commander, device `Mac.lan`, `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`,
   team `3AK4NZ9W4P`). Say plainly what was and wasn't built or run.
+
+## The instrument maker (since 2026-11-18)
+
+The repository's second part: **Make instrument…** in the menu samples an Audio Unit instrument into a TuneGod instrument (`.tgi`) for
+the phone. Its code is `Sources/TuneGodSamplerKit` (hosting, capture, trimming, the file), `Sources/tgsample` (the same from the command
+line) and `App/Sources/Maker` (the window). It does not touch the Link code, and Link does not touch it.
+
+- The `.tgi` format and the rules for choosing a layer are TuneGodCore's, in `nickpaq/tunegod-native` (`docs/tgi-file-format.md`); this
+  package uses that code from `../tunegod-native/ios/TuneGodCore` (`TUNEGOD_CORE=<path>` names another checkout). Change the format there,
+  for both sides.
+- What is built, what was run and what was not: the second half of `docs/HANDOFF.md`. The numbers (threshold, lengths, trimming):
+  `docs/superpowers/plans/2026-11-18-instrument-maker-pads.md`.
+- Plugins are named in the interface only as the Mac lists them; no plugin maker's name is written into code, copy or tests (the tests
+  use the system's own instrument).

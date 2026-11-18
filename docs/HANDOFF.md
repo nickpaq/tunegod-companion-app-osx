@@ -1,3 +1,6 @@
+This repository holds two things: **TuneGod Link** (below) and **the instrument maker** (the second half of this file, 2026-11-18).
+They share the menu-bar app and nothing else.
+
 # TuneGod Link: handoff (2026-11-06)
 
 Goal (the user): plug the iPhone running TuneGod into the Mac by USB and
@@ -65,3 +68,66 @@ Ableton ⇄ driver (in coreaudiod) ⇄ loopback TCP 47821 ⇄ helper ⇄ cable t
   `--uninstall` removes it.
 - Whole chain on one Mac: `tglink phone-sim` | `tglink connect --direct 127.0.0.1:47820` | `tglink device-test`. Only one helper can
   run at a time (the app or `tglink connect`), because the driver port is single.
+
+---
+
+# The instrument maker: handoff (2026-11-18)
+
+The repository's second part. **Make instrument…** in the companion's menu opens a window that loads an Audio Unit instrument,
+samples sixteen pads of it at several velocities and writes a TuneGod instrument (`.tgi`) for the phone. It is part 2 of TuneGod
+instruments; the whole feature's handoff, the design and the file format are in `nickpaq/tunegod-native`
+(`docs/TGI-HANDOFF.md`, `docs/superpowers/specs/2026-11-18-tgi-instruments-design.md`, `docs/tgi-file-format.md`). The plan this was
+built from, with its numbers (threshold, lengths, trimming), is `docs/superpowers/plans/2026-11-18-instrument-maker-pads.md`.
+
+## What exists
+| Part | Where | State |
+|---|---|---|
+| Trimming, layer velocities | `Sources/TuneGodSamplerKit/SampleMath.swift` | Unit-tested |
+| Capturing one hit, a whole kit | `SampleCapture.swift`, `KitSampler.swift`, `KitSetup.swift` | Unit-tested against a made-up plugin |
+| Hits to a `.tgi` (24-bit Apple Lossless in CAF) | `AudioCoding.swift`, `InstrumentBuilder.swift` | Unit-tested; the file is read back by TuneGodCore's `readTGI` |
+| Hosting the plugin | `PluginHost.swift` | Tested against the system's General MIDI instrument only |
+| The plugin on the speakers, the result's playback, MIDI in | `LiveOutput.swift`, `InstrumentPlayer.swift`, `MIDIInput.swift` | The player's levels and cuts are tested by rendering it by hand; **nothing has been listened to** |
+| Command-line tool | `Sources/tgsample/` | `list`, `make "<plugin>" <out.tgi>` |
+| The window | `App/Sources/Maker/` | Builds, opens, loads a plugin, samples and shows the result (screenshots); **no button was clicked by a person** |
+
+## How it works
+- `PluginHost` loads the Audio Unit **in this process** and pulls its render block by hand, 512 frames at a time. No audio engine
+  owns the plugin, so one unit serves the sampler (as fast as it renders, with the plugin told it is offline, or paced to real time)
+  and the speakers (`LiveOutput`), never both at once (`sampling`). Only the plugin's **first output** is recorded.
+- A hit (`captureHit`): wait for silence, note-on at the layer's velocity, hold the key until the sound has stayed under −80 dB for
+  0.3 s (or 10 s, where it is faded and reported), note-off, trim to 0.5 ms before the first sound and 10 ms after the last. Nothing
+  is normalised. A note with no sound within 1 s is no hit.
+- A kit (`sampleKit`): every pad × every layer (evenly spaced velocities, each the top of its range: 4 layers are 32, 64, 95, 127)
+  × every alternate. `buildInstrument` turns it into TuneGodCore's `TGIInstrument`; `writeTGI` is TuneGodCore's.
+- `TuneGodCore` comes from `../tunegod-native/ios/TuneGodCore`; `TUNEGOD_CORE=<path>` names another checkout (`Package.swift`).
+- The app has the hardened runtime's `disable-library-validation` entitlement (`project.yml`): without it macOS refuses to load
+  other makers' plugins into the app.
+
+## Verified (on the user's Mac, macOS 27.2)
+- `swift test`: all 67 tests pass (53 `TuneGodSamplerKitTests`, among them four that run the system's own instrument for real, and Link's 14).
+- `swift run tgsample make "DLSMusicDevice" out.tgi --channel 10`: 16 pads, 64 hits, 20 MB, in 2.4 s; with `--realtime` 16 hits in 54 s.
+  Every pad's four layers rise in level; `readTGI` accepts the file.
+- The app builds (`xcodegen generate`, scheme `TuneGodCompanion`, Debug). Launched with
+  `--make-instrument --plugin DLSMusicDevice --channel 10 --sample` it opened the window and the plugin's own window, sampled, and
+  showed the result with Save and AirDrop (screenshots taken, not kept).
+
+## Not verified / next
+1. **A drum plugin from another maker.** None is installed on the user's Mac as an Audio Unit (only solo brass and strings
+   instruments and the system's own), so the accepted test of the design (the user's drum plugin samples correctly) has not happened.
+   Unknown until then: whether such plugins render correctly faster than real time (the Real time switch is the fallback), how they
+   behave loaded in this process, and plugins with several outputs.
+2. **By ear and by hand:** clicking and key-playing the pads, a MIDI keyboard (playing, Learn), Cancel, Save…, AirDrop, the
+   result's playback against the plugin.
+3. **The file on the phone:** the test instrument made by `tgipack` works there (the user, 2026-11-18); one made here (Apple Lossless
+   in CAF rather than WAV) has not been tried.
+4. **Size.** Hits are long because the tail is kept down to −80 dB: the system instrument's kit came to 20 MB for 64 hits, about
+   60 MB decoded. The window warns above 150 MB decoded (`PHONE_MEMORY_WARNING_BYTES`), a guess until the phone's cost is measured.
+5. TGI keys (part 3): range, notes per octave, hold length; `captureHit` already holds and releases, `TGIZone` is in TuneGodCore.
+6. Later, if wanted: remembering a plugin's pad setup between runs (the design keeps no project in version 1), a plugin's other
+   outputs, loading plugins out of process.
+
+## Working on it
+- Tests: `TUNEGOD_CORE=<TuneGodCore with the TGI code> swift test --filter TuneGodSamplerKitTests`. The default path works once
+  `~/Developer/tunegod-native` is on a commit that has `Sources/TuneGodCore/TGI`.
+- The app: `TUNEGOD_CORE=… xcodegen generate`, then build `TuneGodCompanion`. `--make-instrument` opens the window at launch;
+  debug builds also take `--plugin <part of a name>`, `--channel <n>` and `--sample` (press Sample once the plugin has loaded).
