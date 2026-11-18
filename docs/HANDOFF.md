@@ -109,6 +109,25 @@ built from, with its numbers (threshold, lengths, trimming), is `docs/superpower
   resized when the view's frame changes). The user could not close the plugin's scale panel after opening it; this is a guess at
   why (the view outgrew a window that kept its first size), not reproduced.
 - Debug launch: `--plugin <name> --sample --every-kit --make-instrument` starts a run once the plugin has loaded.
+- **Found on the first run (2026-11-18, the build before these fixes):** it made one kit and ended ("The plugin had no further
+  kit"): the user's drum plugin ignored a click handed to its window (`NSWindow.sendEvent`), while a real click at the same place
+  (posted from a shell tool, `~/Developer/tgi-test/click`) moved it. `PluginWindow.click` now puts the pointer there first and,
+  where the companion is trusted for Accessibility, posts a real click; otherwise it still hands the events to the window.
+  **Neither path has been tried since.** If the handed events still do nothing, the companion needs Accessibility (System
+  Settings, Privacy & Security), or the run can be driven from outside with the shell tool.
+- **A kit with noise under it** ("Rain On Us" of the Hip Hop and Gospel list) ran every hit to the longest length: 114 MB. A hit
+  is now heard against the level the plugin rests at (`settle` gives it back; `CaptureSettings.noiseSeconds`, `noiseSteady`,
+  `noiseClear`). Unit-tested with a made-up plugin; **not yet tried on that kit.**
+- **The plugin as it was left** (`PluginHost.keepState`, `restoreKeptState`; `Plugin states/<plugin id>.plist` beside the pad
+  setups): its whole state is written as it changes (looked at with the kit's name, at most every 5 s) and put back when the plugin
+  loads, so the kit and whatever was set in the plugin's window (the user's velocity curve) outlast a restart. Not tried yet.
+- **The pads' layout, changed again at the user's request:** Kick, Rimshot, Closed hat, Open hat along the top row; then Tom 1,
+  Tom 2, Perc, Flexi; Closed hat 2, Hat foot, Ride, Ride bell; Snare, Sidestick, Crash 1, Crash 2. In
+  `~/Developer/tgi-test/ad2-map.txt` (the one before is `ad2-map-before-first-row.txt`); it becomes the plugin's setup with
+  `tgsample setup` while the companion is not running (a running companion keeps its own copy).
+- **Driving the window from outside works on the user's Mac** (the shell may script the interface): `osascript` raises the
+  windows, `~/Developer/tgi-test/click <x> <y>` clicks. The folder can be set while the companion runs with
+  `defaults write app.tunegod.companion maker.folder <path>`. The user's own folder is `tunegod instrument files` in iCloud Drive.
 
 ## Browse, hear, one button (2026-11-18, the user's request)
 The user asked to browse the plugin's presets, hear a kit and make its `.tgi` with one button, "exactly how it worked for the test"
