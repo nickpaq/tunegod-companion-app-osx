@@ -2,6 +2,7 @@
 // system's list of its parameters. The window's title bar carries the maker's bar (`PluginWindowBar`): the chosen kit's name and
 // Make instrument, so a kit is browsed, heard and made without leaving this window.
 import AppKit
+import ApplicationServices
 import CoreAudioKit
 import SwiftUI
 import TuneGodSamplerKit
@@ -104,15 +105,34 @@ final class PluginWindow {
         clickMonitor = nil
     }
 
-    /// Clicks the plugin's view at `point` (points from its top left), as the mouse would. The pointer does not move.
+    /// Clicks the plugin's view at `point` (points from its top left). A plugin that draws its own controls asks the system
+    /// where the pointer is, so the pointer is put there for the click and put back after. Where the user has let the companion
+    /// control the Mac (Accessibility) the click is a real one; otherwise the events are handed to the window.
     func click(at point: CGPoint) {
-        guard let window, let content = pluginView ?? window.contentView else { return }
+        guard let window, let content = pluginView ?? window.contentView, let screen = NSScreen.screens.first else { return }
+        window.makeKeyAndOrderFront(nil)
         let location = windowPoint(point, in: content)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        let onScreen = window.convertPoint(toScreen: location)
+        // The system's events measure from the top left of the first screen.
+        let target = CGPoint(x: onScreen.x, y: screen.frame.height - onScreen.y)
+        let was = CGEvent(source: nil)?.location
+        CGWarpMouseCursorPosition(target)
+        defer { if let was { CGWarpMouseCursorPosition(was) } }
+        if AXIsProcessTrusted() {
+            let source = CGEventSource(stateID: .hidSystemState)
+            for type in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+                CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: target, mouseButton: .left)?.post(tap: .cghidEventTap)
+                usleep(60_000)
+            }
+            return
+        }
+        usleep(40_000)
+        for type in [NSEvent.EventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
             guard let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: type == .mouseMoved ? 0 : 1,
                                                  pressure: type == .leftMouseDown ? 1 : 0) else { continue }
             window.sendEvent(event)
+            usleep(40_000)
         }
     }
 

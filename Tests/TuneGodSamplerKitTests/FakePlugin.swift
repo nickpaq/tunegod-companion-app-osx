@@ -15,6 +15,8 @@ final class FakePlugin: NoteRendering {
     /// Whether letting the key go stops the note at once.
     var stopsAtNoteOff = false
     var rightScale: Float = 1
+    /// A bed of noise under everything: every frame is this much, one way then the other.
+    var noise: Float = 0
 
     private(set) var held: Set<Int> = []
     private(set) var played: [[Int]] = []
@@ -43,6 +45,7 @@ final class FakePlugin: NoteRendering {
                 }
                 voices[i].age += 1
             }
+            if noise > 0 { s += (framesRendered + left.count) % 2 == 0 ? noise : -noise }
             left.append(s)
             right.append(s * rightScale)
         }

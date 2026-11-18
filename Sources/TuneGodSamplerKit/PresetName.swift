@@ -80,9 +80,43 @@ extension PluginHost {
     /// The name of the kit or preset the plugin has loaded, or nil when the plugin does not say. A preset of the plugin's that the
     /// system knows by number is named by the system; any other is looked for in the plugin's state. That asks the plugin for its
     /// whole state on the caller's thread: call it from the main thread, as a host does when it saves.
-    public var presetName: String? {
+    public var presetName: String? { presetName(in: unit.fullState) }
+
+    /// The same, from a state already asked for (`unit.fullState`), so one asking serves the name and the keeping of the state.
+    public func presetName(in state: [String: Any]?) -> String? {
         if let preset = unit.currentPreset, preset.number >= 0, let name = usableName(preset.name) { return name }
-        guard let state = unit.fullState else { return nil }
-        return TuneGodSamplerKit.presetName(inState: state)
+        return state.flatMap { TuneGodSamplerKit.presetName(inState: $0) }
+    }
+}
+
+// MARK: The plugin as it was left
+
+/// Where a plugin's state is kept between runs: the kit that was chosen and everything set in the plugin's own window.
+public func pluginStateFolder() -> URL {
+    padSetupFolder().deletingLastPathComponent().appendingPathComponent("Plugin states", isDirectory: true)
+}
+
+/// A plugin's state as a file's bytes; nil when it holds something a file cannot.
+public func pluginStateData(_ state: [String: Any]) -> Data? {
+    guard PropertyListSerialization.propertyList(state, isValidFor: .binary) else { return nil }
+    return try? PropertyListSerialization.data(fromPropertyList: state, format: .binary, options: 0)
+}
+
+extension PluginHost {
+    private func stateFile(in folder: URL) -> URL { folder.appendingPathComponent("\(info.id).plist") }
+
+    /// Keeps `data` (`pluginStateData`) as this plugin's state.
+    public func keepState(_ data: Data, in folder: URL = pluginStateFolder()) throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try data.write(to: stateFile(in: folder), options: .atomic)
+    }
+
+    /// Puts the plugin back as it was last kept. False when nothing was kept or it cannot be read. Call from the main thread.
+    @discardableResult
+    public func restoreKeptState(in folder: URL = pluginStateFolder()) -> Bool {
+        guard let data = try? Data(contentsOf: stateFile(in: folder)),
+              let state = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any] else { return false }
+        unit.fullState = state
+        return true
     }
 }

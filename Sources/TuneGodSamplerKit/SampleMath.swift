@@ -21,6 +21,12 @@ public struct CaptureSettings: Sendable {
     /// Before a hit, the plugin must have been silent this long (the last hit's tail has gone), waited for at most `settleMaxSeconds`.
     public var settleSeconds = 0.1
     public var settleMaxSeconds = 5.0
+    /// A plugin that never falls silent (a kit with noise under it): its resting level is the loudest sample of this long, taken
+    /// once that is at least `noiseSteady` of the stretch before (no longer falling); a hit's sound is what is `noiseClear` times
+    /// above it.
+    public var noiseSeconds = 1.0
+    public var noiseSteady: Float = 0.9
+    public var noiseClear: Float = 2
     /// A note that has made no sound by now makes none.
     public var startSeconds = 1.0
 

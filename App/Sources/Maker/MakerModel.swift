@@ -147,6 +147,9 @@ final class MakerModel {
     private var midi: MIDIInput?
     private let pluginWindow = PluginWindow()
     private var kitWatch: Task<Void, Never>?
+    /// The plugin's state as it was last written to disk, and when.
+    private var keptState: Data?
+    private var keptStateAt = Date.distantPast
     /// Where a click in the plugin's window goes to its next kit (points from the top left of the plugin's view), shown once by
     /// the user and kept for the plugin. Make every kit repeats it.
     private(set) var nextKitClick: CGPoint?
@@ -236,6 +239,8 @@ final class MakerModel {
                 let loaded = try await PluginHost.load(plugin, sampleRate: CaptureSettings().sampleRate)
                 // Another plugin was chosen while this one loaded.
                 guard pluginID == plugin.id else { return }
+                // The plugin as it was left: the kit that was chosen and what was set in its own window.
+                loaded.restoreKeptState()
                 let output = try LiveOutput(host: loaded)
                 try output.start()
                 host = loaded
@@ -278,8 +283,15 @@ final class MakerModel {
                 var pause = 1.0
                 if !self.isSampling {
                     let began = Date()
-                    let name = host.presetName
+                    let state = host.unit.fullState
+                    let name = host.presetName(in: state)
                     pause = max(1, Date().timeIntervalSince(began) * 20)
+                    // The plugin's state is kept as it changes (at most every few seconds), so the next run opens on it.
+                    if let data = state.flatMap(pluginStateData), data != self.keptState, Date().timeIntervalSince(self.keptStateAt) > 5 {
+                        self.keptState = data
+                        self.keptStateAt = Date()
+                        Task.detached(priority: .utility) { try? host.keepState(data) }
+                    }
                     if name != self.kit {
                         self.kit = name
                         // Another kit: the instrument is named after it, whatever was typed for the last one.
