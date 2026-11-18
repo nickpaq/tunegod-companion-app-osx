@@ -111,7 +111,10 @@ instrument, the file carrying the preset's name.
   `~/Library/Application Support/TuneGod Companion/Pad setups/<plugin id>.json`, written whenever a pad, the layers, the
   alternates or the channel change. The setup the test instrument was made with (`~/Developer/tgi-test/ad2-map.txt`: crashes,
   rides, four toms, three hats, kick, snare, rimshot, sidestick; the closed and pedal hats cut the open one; 4 layers, 1 alternate)
-  is saved there for the user's drum plugin, so nothing has to be set.
+  is saved there for the user's drum plugin, so nothing has to be set. **Changed the same day at the user's request:** pads 7 and
+  8 (toms 3 and 4) are now the plugin's first two Flexi slots, labelled Perc (note 47) and Flexi (note 96); the notes were found
+  by soloing each slot and probing which notes still sound (the third slot was empty in the first kit, its note is not known).
+  The file with the toms is kept as `ad2-map-toms.txt`. No instrument has been made with the new setup yet.
 - **The test instrument was made by another tool** (`tgsample` on `claude/hopeful-johnson-xtf655`, commit `1177fbd`: an audio
   engine rendering offline, the key let go after 0.25 s, 12 s at most). This branch does not merge that tool; it samples the same
   setup with this kit's code. Compared hit by hit on the Mac: the same 64 hits, lengths within the plugin's own variation plus this
