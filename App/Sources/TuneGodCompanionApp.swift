@@ -1,31 +1,65 @@
 // TuneGod Companion: a menu-bar app that keeps the link to the iPhone open over the USB cable and carries it to the "TuneGod iPhone" audio
 // device (the driver) and the "TuneGod" MIDI ports. Its menu also opens Make instrument (App/Sources/Maker), which samples a plugin
-// into a TuneGod instrument for the phone.
+// into a TuneGod instrument for the phone. Opened from the Dock, Launchpad or Finder it is the instrument maker: the window opens, and
+// the app is in the Dock while the window is open (in the menu bar only once it is closed).
 import SwiftUI
 import TuneGodLinkKit
 
 /// The Make instrument window's scene.
 let MAKER_WINDOW = "maker"
 
+extension Notification.Name {
+    /// The app's icon was clicked in the Dock or Launchpad while it runs: Make instrument opens (or comes to the front).
+    static let openMaker = Notification.Name("app.tunegod.companion.openMaker")
+}
+
+final class CompanionDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        NotificationCenter.default.post(name: .openMaker, object: nil)
+        return false
+    }
+}
+
+/// The menu bar's icon. It is always there, so it is what opens Make instrument when the Dock asks.
+struct MenuBarIcon: View {
+    let connected: Bool
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Image(systemName: connected ? "iphone.radiowaves.left.and.right" : "iphone")
+            .onReceive(NotificationCenter.default.publisher(for: .openMaker)) { _ in
+                openWindow(id: MAKER_WINDOW)
+                NSApplication.shared.activate(ignoringOtherApps: true)
+            }
+    }
+}
+
 @main
 struct TuneGodCompanionApp: App {
     @State private var link = LinkController()
     @State private var maker = MakerModel()
+    @NSApplicationDelegateAdaptor(CompanionDelegate.self) private var delegate
 
     var body: some Scene {
         MenuBarExtra {
             LinkMenu(link: link)
         } label: {
-            Image(systemName: link.connected ? "iphone.radiowaves.left.and.right" : "iphone")
+            MenuBarIcon(connected: link.connected)
         }
         .menuBarExtraStyle(.window)
 
         Window("Make instrument", id: MAKER_WINDOW) {
             MakerWindow(model: maker)
+                // In the Dock (and the app switcher) while the window is open, with the app's icon; back to the menu bar after.
+                .onAppear {
+                    NSApplication.shared.setActivationPolicy(.regular)
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                }
+                .onDisappear { NSApplication.shared.setActivationPolicy(.accessory) }
         }
         .windowResizability(.contentSize)
-        // The app lives in the menu bar: the window opens from the menu (or at launch with `--make-instrument`).
-        .defaultLaunchBehavior(ProcessInfo.processInfo.arguments.contains("--make-instrument") ? .presented : .suppressed)
+        // Opening the app (the Dock, Launchpad, Finder) opens the instrument maker; the link runs in the menu bar either way.
+        .defaultLaunchBehavior(.presented)
     }
 }
 

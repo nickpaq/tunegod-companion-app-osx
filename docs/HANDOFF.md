@@ -181,6 +181,15 @@ process as the drums". The window's **Pads | Keys** choice; keys go through the 
 - **The phone does not play keys files yet** (`nickpaq/tunegod-native` refuses kind `keys`: TGI keys on the phone is still to do,
   `docs/TGI-HANDOFF.md` there). The format is unchanged: `zones`, `holdFrames`, `releaseMs` were already in version 1.
 
+## The app's icon and the Dock (2026-11-19, the user: "an icon in the launchbar for the instrument maker")
+- `App/Assets.xcassets/AppIcon.appiconset`: pads over a keyboard on a white sticker, in the phone app's charcoal, mauve glow and pink
+  rim. Drawn by a script (not kept); the 1024 one is the master.
+- The app is still a menu-bar app (`LSUIElement`), but opening it (Dock, Launchpad, Finder) opens Make instrument, and while that window
+  is open the app is a regular one (`setActivationPolicy(.regular)`): in the Dock and the app switcher. Closing the window puts it back
+  in the menu bar only. A click on its Dock icon while it runs opens the window (`applicationShouldHandleReopen` → `.openMaker` →
+  `MenuBarIcon`, which is always alive).
+- Installed as `/Applications/TuneGod Companion.app` and kept in the Dock on the user's Mac (see "Verified").
+
 ## How it works
 - `PluginHost` loads the Audio Unit **in this process** and pulls its render block by hand, 512 frames at a time. No audio engine
   owns the plugin, so one unit serves the sampler (as fast as it renders, with the plugin told it is offline, or paced to real time)
@@ -220,7 +229,7 @@ process as the drums". The window's **Pads | Keys** choice; keys go through the 
 ## Working on it
 - Tests: `TUNEGOD_CORE=<TuneGodCore with the TGI code> swift test --filter TuneGodSamplerKitTests`. The default path works once
   `~/Developer/tunegod-native` is on a commit that has `Sources/TuneGodCore/TGI`.
-- The app: `TUNEGOD_CORE=… xcodegen generate`, then build `TuneGodCompanion`. `--make-instrument` opens the window at launch;
+- The app: `TUNEGOD_CORE=… xcodegen generate`, then build `TuneGodCompanion`. The window opens at every launch (2026-11-19: the app is the instrument maker when opened from the Dock; `--make-instrument` is kept but changes nothing);
   debug builds also take `--plugin <part of a name>`, `--channel <n>` and `--sample` (press Make instrument once the plugin has
   loaded). **Put `--make-instrument` last:** a launch whose last argument is a bare word (`--plugin Name`) opens no window, because
   the system takes the word for a file to open. The plugin last used loads by itself, so `--make-instrument` alone is enough.
