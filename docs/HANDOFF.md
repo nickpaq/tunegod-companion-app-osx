@@ -87,8 +87,76 @@ built from, with its numbers (threshold, lengths, trimming), is `docs/superpower
 | Hits to a `.tgi` (24-bit Apple Lossless in CAF) | `AudioCoding.swift`, `InstrumentBuilder.swift` | Unit-tested; the file is read back by TuneGodCore's `readTGI` |
 | Hosting the plugin | `PluginHost.swift` | Tested against the system's General MIDI instrument only |
 | The plugin on the speakers, the result's playback, MIDI in | `LiveOutput.swift`, `InstrumentPlayer.swift`, `MIDIInput.swift` | The player's levels and cuts are tested by rendering it by hand; **nothing has been listened to** |
-| Command-line tool | `Sources/tgsample/` | `list`, `make "<plugin>" <out.tgi>` |
-| The window | `App/Sources/Maker/` | Builds, opens, loads a plugin, samples and shows the result (screenshots); **no button was clicked by a person** |
+| The kit's name | `PresetName.swift` (`PluginHost.presetName`) | Unit-tested; read correctly from the user's drum plugin's first kit |
+| A plugin's pad setup, kept between runs | `PadSetupStore.swift` | Unit-tested; the user's drum plugin's setup is saved on the Mac |
+| Command-line tool | `Sources/tgsample/` | `list`, `setup "<plugin>" <map.txt>`, `make "<plugin>" <out.tgi>` |
+| The window | `App/Sources/Maker/` | Builds and opens with the user's drum plugin; its title bar showed the first kit's name (one screenshot, 2026-11-18). **No button was clicked by a person**, and the name following a kit chosen by hand has not been seen |
+
+## Every kit, the folder, iCloud (2026-11-18, the user's requests; built, **not tried by anyone**)
+- **Make every kit** (`MakerModel.makeEveryKit`, the row under the name in the maker's window): the user shows once where the
+  plugin's next-kit button is (**Show the next-kit button…**, then a click in the plugin's window; kept per plugin in the app's
+  defaults as `maker.nextKit.<plugin id>`, points from the top left of the plugin's view). A run makes the kit, repeats that click
+  (`PluginWindow.click`, mouse events sent to the plugin's window; the pointer does not move), waits for the kit's name to change
+  and `KIT_LOAD_SECONDS` for its sounds, and goes on until the name stops changing, a name comes round again, Stop, or
+  `MOST_KITS`. A kit whose file is already in the folder is passed over, so a stopped run carries on. The user's drum plugin has
+  up and down arrows beside the kit's name for this (the user). **Whether a sent click moves that plugin has not been tested.**
+- **The folder** (`madeInstrumentsFolder`, the Save menu): the Desktop, "TuneGod Instruments" in iCloud Drive, or any folder.
+- **Room on the Mac** (the user: "Make sure they don't all save on my local storage"): an instrument written in iCloud Drive is
+  given back once iCloud has it (`freeLocalCopy`: `evictUbiquitousItem`, tried on the Mac with a test file: the file stayed in the
+  folder at 0 bytes on disk). A run waits while `MOST_WAITING_FOR_ICLOUD` are still going up. Quitting before they are up leaves
+  those on the disk.
+- **The plugin's window follows the plugin's own size** (`PluginWindow.show`: the plugin's view in a plain holder, the window
+  resized when the view's frame changes). The user could not close the plugin's scale panel after opening it; this is a guess at
+  why (the view outgrew a window that kept its first size), not reproduced.
+- Debug launch: `--plugin <name> --sample --every-kit --make-instrument` starts a run once the plugin has loaded.
+- **Found on the first run (2026-11-18, the build before these fixes):** it made one kit and ended ("The plugin had no further
+  kit"): the user's drum plugin ignored a click handed to its window (`NSWindow.sendEvent`), while a real click at the same place
+  (posted from a shell tool, `~/Developer/tgi-test/click`) moved it. `PluginWindow.click` now puts the pointer there first and,
+  where the companion is trusted for Accessibility, posts a real click; otherwise it still hands the events to the window.
+  **Neither path has been tried since.** If the handed events still do nothing, the companion needs Accessibility (System
+  Settings, Privacy & Security), or the run can be driven from outside with the shell tool.
+- **A kit with noise under it** ("Rain On Us" of the Hip Hop and Gospel list) ran every hit to the longest length: 114 MB. A hit
+  is now heard against the level the plugin rests at (`settle` gives it back; `CaptureSettings.noiseSeconds`, `noiseSteady`,
+  `noiseClear`). Unit-tested with a made-up plugin; **not yet tried on that kit.**
+- **The plugin as it was left** (`PluginHost.keepState`, `restoreKeptState`; `Plugin states/<plugin id>.plist` beside the pad
+  setups): its whole state is written as it changes (looked at with the kit's name, at most every 5 s) and put back when the plugin
+  loads, so the kit and whatever was set in the plugin's window (the user's velocity curve) outlast a restart. Not tried yet.
+- **The pads' layout, changed again at the user's request:** Kick, Rimshot, Closed hat, Open hat along the top row; then Tom 1,
+  Tom 2, Perc, Flexi; Closed hat 2, Hat foot, Ride, Ride bell; Snare, Sidestick, Crash 1, Crash 2. In
+  `~/Developer/tgi-test/ad2-map.txt` (the one before is `ad2-map-before-first-row.txt`); it becomes the plugin's setup with
+  `tgsample setup` while the companion is not running (a running companion keeps its own copy).
+- **Driving the window from outside works on the user's Mac** (the shell may script the interface): `osascript` raises the
+  windows, `~/Developer/tgi-test/click <x> <y>` clicks. The folder can be set while the companion runs with
+  `defaults write app.tunegod.companion maker.folder <path>`. The user's own folder is `tunegod instrument files` in iCloud Drive.
+
+## Browse, hear, one button (2026-11-18, the user's request)
+The user asked to browse the plugin's presets, hear a kit and make its `.tgi` with one button, "exactly how it worked for the test"
+instrument, the file carrying the preset's name.
+- **The list of kits is the plugin's own window.** The drum plugin gives a host no presets (`factoryPresets` is empty, no user
+  presets) and its preset files are encrypted, so the companion cannot show a list of its own. Kits are browsed and heard there;
+  the pads in our window play whichever is chosen.
+- **The kit's name** comes from the state the plugin hands a host for saving (`fullState`): `presetName(inState:)` looks for an
+  entry whose name ends in `CurrentPresetName` (then `PresetName`, `ProgramName`, `PatchName`), as zero-ended text or
+  `key="value"`. The window asks about once a second (`MakerModel.watchKit`), names the instrument after it until the user types
+  another name, and goes back to following when the kit changes. A plugin that does not name its kit leaves the plugin's name.
+- **One button:** Make instrument samples the kit and writes `<name>.tgi` on the Desktop (`freeInstrumentFile`: a taken name gets
+  " 2", nothing is replaced). The result row has Show in Finder, Save as… and AirDrop.
+- **The button is also in the plugin's window** (`PluginWindowBar`, a title bar accessory): the drum plugin's window is large and
+  covers the maker's, so the kit's name, Make instrument, the progress and AirDrop sit in its title bar. The maker's window is
+  only needed to change the pads, the layers or the name.
+- **Remembered:** the plugin last used (it loads when the window opens) and each plugin's pad setup, in
+  `~/Library/Application Support/TuneGod Companion/Pad setups/<plugin id>.json`, written whenever a pad, the layers, the
+  alternates or the channel change. The setup the test instrument was made with (`~/Developer/tgi-test/ad2-map.txt`: crashes,
+  rides, four toms, three hats, kick, snare, rimshot, sidestick; the closed and pedal hats cut the open one; 4 layers, 1 alternate)
+  is saved there for the user's drum plugin, so nothing has to be set. **Changed the same day at the user's request:** pads 7 and
+  8 (toms 3 and 4) are now the plugin's first two Flexi slots, labelled Perc (note 47) and Flexi (note 96); the notes were found
+  by soloing each slot and probing which notes still sound (the third slot was empty in the first kit, its note is not known).
+  The file with the toms is kept as `ad2-map-toms.txt`. No instrument has been made with the new setup yet.
+- **The test instrument was made by another tool** (`tgsample` on `claude/hopeful-johnson-xtf655`, commit `1177fbd`: an audio
+  engine rendering offline, the key let go after 0.25 s, 12 s at most). This branch does not merge that tool; it samples the same
+  setup with this kit's code. Compared hit by hit on the Mac: the same 64 hits, lengths within the plugin's own variation plus this
+  kit's 10 ms tail (185.5 s against 185.7 s in all), the same levels, 25.6 MB both. The longest hit was raised from 10 s to 12 s to
+  match (the rides at full velocity run past 9 s).
 
 ## How it works
 - `PluginHost` loads the Audio Unit **in this process** and pulls its render block by hand, 512 frames at a time. No audio engine
@@ -112,10 +180,10 @@ built from, with its numbers (threshold, lengths, trimming), is `docs/superpower
   showed the result with Save and AirDrop (screenshots taken, not kept).
 
 ## Not verified / next
-1. **A drum plugin from another maker.** None is installed on the user's Mac as an Audio Unit (only solo brass and strings
-   instruments and the system's own), so the accepted test of the design (the user's drum plugin samples correctly) has not happened.
-   Unknown until then: whether such plugins render correctly faster than real time (the Real time switch is the fallback), how they
-   behave loaded in this process, and plugins with several outputs.
+1. **A drum plugin from another maker: sampled, to be accepted by the user.** The user's drum plugin is installed now. `tgsample
+   make` loads it in this process, renders it faster than real time (64 hits in 4.7 s) and matches the test instrument (above).
+   Still unknown: a kit switched in the plugin's window and made straight away (the plugin may still be loading its sounds; the
+   tool waits 2 s after loading, the window does not wait), and plugins with several outputs.
 2. **By ear and by hand:** clicking and key-playing the pads, a MIDI keyboard (playing, Learn), Cancel, Save…, AirDrop, the
    result's playback against the plugin.
 3. **The file on the phone:** the test instrument made by `tgipack` works there (the user, 2026-11-18); one made here (Apple Lossless
@@ -130,4 +198,12 @@ built from, with its numbers (threshold, lengths, trimming), is `docs/superpower
 - Tests: `TUNEGOD_CORE=<TuneGodCore with the TGI code> swift test --filter TuneGodSamplerKitTests`. The default path works once
   `~/Developer/tunegod-native` is on a commit that has `Sources/TuneGodCore/TGI`.
 - The app: `TUNEGOD_CORE=… xcodegen generate`, then build `TuneGodCompanion`. `--make-instrument` opens the window at launch;
-  debug builds also take `--plugin <part of a name>`, `--channel <n>` and `--sample` (press Sample once the plugin has loaded).
+  debug builds also take `--plugin <part of a name>`, `--channel <n>` and `--sample` (press Make instrument once the plugin has
+  loaded). **Put `--make-instrument` last:** a launch whose last argument is a bare word (`--plugin Name`) opens no window, because
+  the system takes the word for a file to open. The plugin last used loads by itself, so `--make-instrument` alone is enough.
+- **TuneGodCore must have `TGI_PAD_VOICES`** (the phone repository's branch `claude/serene-lamport-o2lucs`, 3.209.1): a pad of an
+  instrument sounds at most twice at once on the phone, and the preview here (`InstrumentPlayer.play`) follows that number. On the
+  Mac `TUNEGOD_CORE` is `~/Developer/tg-tgi-kits/ios/TuneGodCore`, a worktree of that branch.
+- On the Mac the worktree is `~/Developer/tgc-kits`; `~/Developer/tgi-test/kits-test.sh`, `kits-make.sh` and `kits-app.sh` pull the
+  branch and run the tests, a sampling of the drum plugin, and the app's build. An app that has a plugin loaded does not end on a
+  plain `kill`; quit it from its menu (or `kill -9`).

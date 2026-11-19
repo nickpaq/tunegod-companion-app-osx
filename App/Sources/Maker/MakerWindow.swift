@@ -1,6 +1,7 @@
-// Make instrument: one window, top to bottom. Pick the plugin (its own window opens for choosing the kit or the sound), choose Pads or
-// Keys, say which of its notes falls on which pad (pads) or which range is sampled and how closely (keys), sample, listen to the
-// result, then save it or AirDrop it to the phone. Both kinds go through the same steps.
+// Make instrument: one window, top to bottom. Pick the plugin (its own window opens, where its kits are browsed and heard), choose
+// Pads or Keys, say once which of its notes falls on which pad (pads) or which range is sampled and how closely (keys), then Make
+// instrument: it is sampled and written as a .tgi named after the kit, to listen to and AirDrop to the phone. The plugin and its pads
+// are remembered, so the next time it is browse, then one button. Pads and keys go through the same steps.
 import SwiftUI
 import TuneGodSamplerKit
 
@@ -17,7 +18,7 @@ struct MakerWindow: View {
             }
             .pickerStyle(.segmented)
             .fixedSize()
-            .disabled(model.isSampling)
+            .disabled(model.isSampling || model.batch != nil)
             .help("Pads: a drum kit on TuneGod\u{2019}s 16 pads. Keys: a keyboard instrument, sampled across a range of notes.")
             Group {
                 if model.kind == .pads {
@@ -86,8 +87,8 @@ private struct PluginRow: View {
             Text(model.host == nil
                  ? "Audio Unit instruments installed on this Mac. Choose the one to sample."
                  : model.kind == .pads
-                    ? "Choose the kit in the plugin\u{2019}s window, then click the pads to hear what each one will record."
-                    : "Choose the sound in the plugin\u{2019}s window, then play the keyboard to hear it.")
+                    ? "Browse the kits in the plugin\u{2019}s window. Click the pads to hear what each one will record."
+                    : "Browse the sounds in the plugin\u{2019}s window. Play the keyboard to hear them.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -227,6 +228,19 @@ private struct SamplingRow: View {
                     .help("Records at playing speed. Turn it on for a plugin that sounds wrong when recorded faster.")
             }
             .disabled(model.isSampling)
+            HStack(spacing: 10) {
+                Text("Name")
+                TextField("Name", text: $model.name)
+                    .labelsHidden()
+                    .frame(width: 240)
+                    .help("The instrument\u{2019}s name on the phone, and its file\u{2019}s. It follows the kit chosen in the plugin until another is typed.")
+                Text(model.kit == nil ? "This plugin does not name its kit. Type the name here."
+                     : "The kit chosen in the plugin.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .disabled(model.isSampling || model.host == nil)
+            EveryKitRow(model: model)
             if case .sampling(let done, let total, let label) = model.phase {
                 HStack(spacing: 12) {
                     ProgressView(value: Double(done), total: Double(max(1, total)))
@@ -238,13 +252,13 @@ private struct SamplingRow: View {
                 }
             } else {
                 HStack(spacing: 12) {
-                    // The window's one prominent button is the next step: Sample, then AirDrop once there is a result.
-                    if model.made == nil {
-                        Button("Sample") { model.sample() }
-                            .buttonStyle(.borderedProminent)
+                    // The window's one prominent button is the next step: Make instrument, then AirDrop once this kit is made.
+                    if model.madeIsCurrent {
+                        Button("Make again") { model.sample() }
                             .disabled(!model.canSample)
                     } else {
-                        Button("Sample again") { model.sample() }
+                        Button("Make instrument") { model.sample() }
+                            .buttonStyle(.borderedProminent)
                             .disabled(!model.canSample)
                     }
                     Text(estimate)
@@ -272,6 +286,50 @@ private struct SamplingRow: View {
     private var tooLarge: Bool { model.kind == .keys && model.estimatedKeysBytes > PHONE_MEMORY_WARNING_BYTES }
 }
 
+/// Where instruments are written, and Make every kit: the plugin's kits one after another, by repeating the click the user shows.
+private struct EveryKitRow: View {
+    @Bindable var model: MakerModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("Save")
+                Menu(placeName(model.folder)) {
+                    Toggle("On the Desktop", isOn: Binding(get: { model.folderIsDesktop }, set: { _ in model.useDesktop() }))
+                    Toggle("In iCloud Drive (TuneGod Instruments)", isOn: Binding(get: { model.folderIsICloud }, set: { _ in model.useICloud() }))
+                        .disabled(!model.iCloudAvailable)
+                    Divider()
+                    Button("Choose a folder\u{2026}") { model.chooseFolder() }
+                }
+                .fixedSize()
+                .help("Where a made instrument\u{2019}s file is written. A folder in iCloud Drive shows in the Files app on the phone.")
+                Spacer()
+                Button(model.learningNextKit ? "Click it in the plugin\u{2026}" : model.nextKitClick == nil ? "Show the next-kit button\u{2026}" : "Next-kit button set")
+                    { model.learnNextKitClick() }
+                    .help("Then click, in the plugin\u{2019}s window, the button that goes to its next kit. Make every kit repeats that click.")
+                if model.batch == nil {
+                    Button("Make every kit") { model.makeEveryKit() }
+                        .disabled(!model.canMakeEveryKit)
+                        .help("Makes this kit, goes to the next and makes it, until the plugin has no further kit. Kits already in the folder are passed over.")
+                } else {
+                    Button("Stop") { model.cancelSampling() }
+                }
+            }
+            if model.waitingForICloud > 0 {
+                Text("\(model.waitingForICloud) \(model.waitingForICloud == 1 ? "instrument is" : "instruments are") going up to iCloud. Each leaves this Mac\u{2019}s disk once it is there; keep the companion open until then.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if let batch = model.batch {
+                Text("Every kit: \(batch.made) made\(batch.skipped > 0 ? ", \(batch.skipped) already there" : ""). Now \(model.kit ?? "the next").")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else if let summary = model.batchSummary {
+                Text(summary).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .disabled(model.host == nil)
+    }
+}
+
 // MARK: - The result
 
 private struct ResultSection: View {
@@ -286,15 +344,22 @@ private struct ResultSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 10) {
-                Text("Name")
-                TextField("Name", text: $model.name)
-                    .labelsHidden()
-                    .frame(width: 200)
-                Text(summary).font(.callout).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(made.savedTo.map { "\($0.lastPathComponent) is \(placeName($0.deletingLastPathComponent()))" } ?? made.instrument.name)
+                        .font(.headline)
+                    Text(summary).font(.callout).foregroundStyle(.secondary)
+                }
                 Spacer()
-                Button("Save\u{2026}") { model.save() }
-                Button("AirDrop") { model.airDrop() }
-                    .buttonStyle(.borderedProminent)
+                if made.savedTo != nil {
+                    Button("Show in Finder") { model.showInFinder() }
+                }
+                Button("Save as\u{2026}") { model.save() }
+                if model.madeIsCurrent {
+                    Button("AirDrop") { model.airDrop() }
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    Button("AirDrop") { model.airDrop() }
+                }
             }
         }
     }

@@ -37,7 +37,7 @@ CoreMIDI, CoreAudioKit (the plugin's own view), Swift Testing. `TuneGodCore` fro
 | Render block | 512 frames |
 | Sound threshold (first sound, and silence) | 1e-4 of full scale (−80 dB) |
 | A hit has ended when | every sample has stayed under the threshold for 0.3 s |
-| Longest hit | 10 s, then a 20 ms fade (the hit is reported as cut short) |
+| Longest hit | 12 s (10 s until 2026-11-18: long cymbals at full velocity ran past it), then a 20 ms fade (the hit is reported as cut short) |
 | Kept before the first sound | 24 frames (0.5 ms) |
 | Kept after the last sound | 10 ms |
 | The key is held | until the hit has ended (a drum plugin that stops at note-off still plays its whole hit) |

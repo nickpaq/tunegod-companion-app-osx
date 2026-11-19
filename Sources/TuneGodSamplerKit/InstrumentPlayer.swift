@@ -19,9 +19,10 @@ public final class InstrumentPlayer {
     let engine = AVAudioEngine()
     let format: AVAudioFormat
     private var buffers: [String: AVAudioPCMBuffer] = [:]
-    /// The voices, used in turn; each remembers the pad it last played so a cut can stop it.
-    private var voices: [(node: AVAudioPlayerNode, pad: Int)] = []
+    /// The voices, used in turn; each remembers the pad it last played, so a cut can stop it, and when (`played` counts the notes).
+    private var voices: [(node: AVAudioPlayerNode, pad: Int, order: Int)] = []
     private var nextVoice = 0
+    private var played = 0
     private var lastHit: [Int: [Int: Int]] = [:]
 
     /// Decodes every hit `instrument` names from `audio`. Throws `TGIError.damaged` when one is missing or cannot be read.
@@ -56,7 +57,7 @@ public final class InstrumentPlayer {
                 let node = AVAudioPlayerNode()
                 engine.attach(node)
                 engine.connect(node, to: engine.mainMixerNode, format: format)
-                voices.append((node, -1))
+                voices.append((node, -1, 0))
             }
         }
         if !engine.isRunning {
@@ -65,7 +66,8 @@ public final class InstrumentPlayer {
         return true
     }
 
-    /// Plays `pad` (0…15) at `velocity`, as the phone would: hits overlap, except that the pad's `cuts` are silenced.
+    /// Plays `pad` (0…15) at `velocity`, as the phone would: hits overlap, except that the pad's `cuts` are silenced and a pad
+    /// sounds at most `TGI_PAD_VOICES` times at once, the oldest giving way.
     public func play(pad index: Int, velocity: Int) {
         guard let pads = instrument.pads, pads.indices.contains(index), let pad = pads[index], !pad.layers.isEmpty, startIfNeeded() else { return }
         var last = lastHit[index] ?? [:]
@@ -76,9 +78,18 @@ public final class InstrumentPlayer {
             voices[i].node.stop()
             voices[i].pad = -1
         }
+        let mine = voices.indices.filter { voices[$0].pad == index }.sorted { voices[$0].order < voices[$1].order }
+        if mine.count >= TGI_PAD_VOICES {
+            for i in mine.prefix(mine.count - TGI_PAD_VOICES + 1) {
+                voices[i].node.stop()
+                voices[i].pad = -1
+            }
+        }
+        played += 1
         let voice = nextVoice
         nextVoice = (nextVoice + 1) % voices.count
         voices[voice].pad = index
+        voices[voice].order = played
         let node = voices[voice].node
         node.stop()
         node.volume = Float(choice.gain)
