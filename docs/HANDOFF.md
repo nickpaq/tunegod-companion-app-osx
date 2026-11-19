@@ -158,6 +158,29 @@ instrument, the file carrying the preset's name.
   kit's 10 ms tail (185.5 s against 185.7 s in all), the same levels, 25.6 MB both. The longest hit was raised from 10 s to 12 s to
   match (the rides at full velocity run past 9 s).
 
+## Keys instruments (2026-11-19, the user's request; built and unit-tested, **not tried by anyone**)
+The user: "make it compatible with keys based instruments … choose the number of samples and map them automatically … the same
+process as the drums". The window's **Pads | Keys** choice; keys go through the same steps as pads (one button samples, writes
+`<kit>.tgi` to the folder, opens it to be heard; Make every kit works for keys too).
+- **Setup** (`KeysSetup.swift`): lowest and highest note (stepper or Learn from a MIDI keyboard), **Samples**: notes per octave
+  12, 6, 4, 3, 2 or 1 (every key … one an octave), velocity layers 1–4 (default 2), hold 0.5–20 s (default 4). Default C1–C6, 4 an
+  octave (every third key): 21 notes × 2 layers = 42 samples. The highest note is always sampled. The window shows the sample count,
+  the time and the size on the phone before sampling (orange above `PHONE_MEMORY_WARNING_BYTES`). Not saved per plugin (the pads are).
+- **Automatic mapping** (`keyZones`): each key plays the nearest sampled note, a key exactly between two the upper one (pitching
+  down sounds better); the lowest zone takes every key below, the highest every key above. A note that made no sound is left out and
+  its keys go to its neighbours. The keyboard in the window shows the sampled notes (dots) and the zones (alternating shades).
+- **Capture** (`captureNote`): as a hit, with a hold: note-on, the key let go on exactly the hold's frame, recorded until the release
+  has been silent 0.3 s or `maxSeconds` after the note-off (faded, reported). A sound that ends while held ends there. Heard against
+  the plugin's resting noise, as a hit is. Nothing is normalised.
+- **The file** (`buildKeysInstrument`): every hit is padded with silence to start where the earliest one did, so `holdFrames` is the
+  same for all; `releaseMs` is the median of the plugin's own releases (note-off to the last sound), 150 ms when no note reached its
+  release. Hits are `kNNN-lL.caf`.
+- **Preview** (`KeysPlayer`): zone by key, repitched by `2^(semitones/12)` (straight-line interpolation), layer and level by
+  TuneGodCore's rules; a key let go before `holdFrames` fades over `releaseMs`, one held past it plays the recorded release.
+- `tgsample make-keys "<plugin>" out.tgi [--low n] [--high n] [--per-octave n] [--layers n] [--hold s]`.
+- **The phone does not play keys files yet** (`nickpaq/tunegod-native` refuses kind `keys`: TGI keys on the phone is still to do,
+  `docs/TGI-HANDOFF.md` there). The format is unchanged: `zones`, `holdFrames`, `releaseMs` were already in version 1.
+
 ## How it works
 - `PluginHost` loads the Audio Unit **in this process** and pulls its render block by hand, 512 frames at a time. No audio engine
   owns the plugin, so one unit serves the sampler (as fast as it renders, with the plugin told it is offline, or paced to real time)
@@ -190,7 +213,7 @@ instrument, the file carrying the preset's name.
    in CAF rather than WAV) has not been tried.
 4. **Size.** Hits are long because the tail is kept down to −80 dB: the system instrument's kit came to 20 MB for 64 hits, about
    60 MB decoded. The window warns above 150 MB decoded (`PHONE_MEMORY_WARNING_BYTES`), a guess until the phone's cost is measured.
-5. TGI keys (part 3): range, notes per octave, hold length; `captureHit` already holds and releases, `TGIZone` is in TuneGodCore.
+5. **TGI keys on the phone** (the Mac side is above): playing zones, repitching, the hold and release; until then a keys `.tgi` is refused there. By ear on the Mac: the keyboard, Learn, the preview against the plugin.
 6. Later, if wanted: remembering a plugin's pad setup between runs (the design keeps no project in version 1), a plugin's other
    outputs, loading plugins out of process.
 

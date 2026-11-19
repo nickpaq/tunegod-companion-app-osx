@@ -14,7 +14,7 @@ The iOS app is `nickpaq/tunegod-native`.
 ## The instrument maker (since 2026-11-18)
 
 The repository's second part: **Make instrument…** in the menu samples an Audio Unit instrument into a TuneGod instrument (`.tgi`) for
-the phone. Its code is `Sources/TuneGodSamplerKit` (hosting, capture, trimming, the file), `Sources/tgsample` (the same from the command
+the phone. Pads (a drum kit on 16 pads) or keys (a range of notes, each key mapped to the nearest sampled note), the same steps for both. Its code is `Sources/TuneGodSamplerKit` (hosting, capture, trimming, the file), `Sources/tgsample` (the same from the command
 line) and `App/Sources/Maker` (the window). It does not touch the Link code, and Link does not touch it.
 
 - The `.tgi` format and the rules for choosing a layer are TuneGodCore's, in `nickpaq/tunegod-native` (`docs/tgi-file-format.md`); this
