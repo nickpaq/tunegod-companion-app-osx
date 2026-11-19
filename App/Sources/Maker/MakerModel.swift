@@ -462,7 +462,7 @@ final class MakerModel {
         Task.detached(priority: .userInitiated) { [weak self] in
             let outcome: Result<(MadeInstrument, Preview), Error>
             do {
-                let progress = { (done: Int, total: Int, label: String) in
+                let progress: (Int, Int, String) -> Void = { done, total, label in
                     Task { @MainActor in self?.progressed(done, total, label) }
                 }
                 let cancelled = { cancel.withLock { $0 } }
