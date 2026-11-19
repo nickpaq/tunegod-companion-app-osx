@@ -77,3 +77,63 @@ public func captureHit(_ plugin: NoteRendering, note: Int, velocity: Int, channe
     }
     return trimmedHit(left: l, right: r, cutShort: cutShort, settings: settings)
 }
+
+/// One note of a keys instrument as it was captured: the hit, trimmed, and where it stands against the note-on.
+public struct CapturedNote: Equatable, Sendable {
+    public var hit: CapturedHit
+    /// Frames from the note-on to where the trimmed hit starts.
+    public var start: Int
+    /// Frames from the note-on to the last sound.
+    public var lastSound: Int
+    /// The key was let go (it was held for the whole hold); false when the sound ended while the key was down.
+    public var released: Bool
+
+    public init(hit: CapturedHit, start: Int, lastSound: Int, released: Bool) {
+        self.hit = hit
+        self.start = start
+        self.lastSound = lastSound
+        self.released = released
+    }
+}
+
+/// One note of a keys instrument: note-on at `velocity`, the key held for `holdFrames` (exactly: the note-off falls on that frame),
+/// then let go and recorded until the release has stayed silent for `silenceSeconds`, or `maxSeconds` after the note-off, where it is
+/// faded and reported as cut short. A sound that ends while the key is held ends the note there. Nil when the note made no sound
+/// while its key was held.
+public func captureNote(_ plugin: NoteRendering, note: Int, velocity: Int, channel: Int, holdFrames: Int, settings: CaptureSettings,
+                        realTime: Bool, cancelled: () -> Bool) throws -> CapturedNote? {
+    try settle(plugin, settings: settings, realTime: realTime, cancelled: cancelled)
+    let hold = max(1, holdFrames)
+    let most = hold + Int(settings.maxSeconds * settings.sampleRate)
+    let silence = Int(settings.silenceSeconds * settings.sampleRate)
+    var pacer = Pacer(realTime: realTime, sampleRate: settings.sampleRate)
+    var l: [Float] = [], r: [Float] = []
+    var lastSound: Int?
+    var released = false, cutShort = false
+    plugin.noteOn(note, velocity: min(127, max(1, velocity)), channel: channel)
+    defer { if !released { plugin.noteOff(note, channel: channel) } }
+    while true {
+        if cancelled() { throw SamplingCancelled() }
+        let before = l.count
+        // A block never runs past the note-off, so the key is let go on its frame.
+        let limit = released ? most : hold
+        try plugin.render(frames: min(settings.blockFrames, limit - before), left: &l, right: &r)
+        let now = min(l.count, r.count)
+        guard now > before else { break }
+        pacer.rendered(now - before)
+        for i in before..<now where abs(l[i]) >= settings.threshold || abs(r[i]) >= settings.threshold { lastSound = i }
+        if let lastSound, now - 1 - lastSound >= silence { break }
+        if !released, now >= hold {
+            guard lastSound != nil else { return nil }
+            plugin.noteOff(note, channel: channel)
+            released = true
+        }
+        if now >= most {
+            cutShort = lastSound != nil
+            break
+        }
+    }
+    guard let last = lastSound,
+          let trimmed = trimmedHitAndStart(left: l, right: r, cutShort: cutShort, settings: settings) else { return nil }
+    return CapturedNote(hit: trimmed.hit, start: trimmed.start, lastSound: last, released: released)
+}

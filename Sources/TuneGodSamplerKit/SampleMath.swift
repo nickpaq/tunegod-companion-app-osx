@@ -56,6 +56,11 @@ public func layerVelocities(_ count: Int) -> [Int] {
 /// A recording of one hit, trimmed: it starts `leadInFrames` before the first sound and ends `tailSeconds` after the last (one cut
 /// short keeps its whole length and fades out). Nil when nothing in it is sound.
 public func trimmedHit(left: [Float], right: [Float], cutShort: Bool, settings: CaptureSettings) -> CapturedHit? {
+    trimmedHitAndStart(left: left, right: right, cutShort: cutShort, settings: settings)?.hit
+}
+
+/// `trimmedHit`, with the frame of the recording the trimmed hit starts at.
+func trimmedHitAndStart(left: [Float], right: [Float], cutShort: Bool, settings: CaptureSettings) -> (hit: CapturedHit, start: Int)? {
     let n = min(left.count, right.count)
     let threshold = settings.threshold
     let isSound = { (i: Int) in abs(left[i]) >= threshold || abs(right[i]) >= threshold }
@@ -72,5 +77,11 @@ public func trimmedHit(left: [Float], right: [Float], cutShort: Bool, settings: 
             r[r.count - fade + i] *= gain
         }
     }
-    return CapturedHit(left: l, right: l == r ? nil : r, peak: peak, cutShort: cutShort)
+    return (CapturedHit(left: l, right: l == r ? nil : r, peak: peak, cutShort: cutShort), start)
+}
+
+/// A MIDI note's name, with 36 as C1 (the kick of the usual drum layout) and 60 as C3.
+public func noteName(_ note: Int) -> String {
+    let names = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"]
+    return "\(names[((note % 12) + 12) % 12])\(Int((Double(note) / 12).rounded(.down)) - 2)"
 }

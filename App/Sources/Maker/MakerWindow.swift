@@ -1,5 +1,6 @@
-// Make instrument: one window, top to bottom. Pick the plugin (its own window opens for choosing the kit), say which of its notes
-// falls on which pad, sample, listen to the result, then save it or AirDrop it to the phone.
+// Make instrument: one window, top to bottom. Pick the plugin (its own window opens for choosing the kit or the sound), choose Pads or
+// Keys, say which of its notes falls on which pad (pads) or which range is sampled and how closely (keys), sample, listen to the
+// result, then save it or AirDrop it to the phone. Both kinds go through the same steps.
 import SwiftUI
 import TuneGodSamplerKit
 
@@ -10,10 +11,24 @@ struct MakerWindow: View {
         VStack(alignment: .leading, spacing: 14) {
             PluginRow(model: model)
             Divider()
-            HStack(alignment: .top, spacing: 18) {
-                PadGridView(model: model)
-                PadSettings(model: model)
-                    .frame(width: 250, alignment: .topLeading)
+            Picker("Instrument", selection: $model.kind) {
+                Text("Pads").tag(TGIKind.pads)
+                Text("Keys").tag(TGIKind.keys)
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            .disabled(model.isSampling)
+            .help("Pads: a drum kit on TuneGod\u{2019}s 16 pads. Keys: a keyboard instrument, sampled across a range of notes.")
+            Group {
+                if model.kind == .pads {
+                    HStack(alignment: .top, spacing: 18) {
+                        PadGridView(model: model)
+                        PadSettings(model: model)
+                            .frame(width: 250, alignment: .topLeading)
+                    }
+                } else {
+                    KeysSettings(model: model)
+                }
             }
             .disabled(model.isSampling)
             AuditionRow(model: model)
@@ -54,11 +69,11 @@ private struct PluginRow: View {
                     }
                 }
                 .frame(maxWidth: 360)
-                Picker("MIDI channel", selection: $model.setup.channel) {
+                Picker("MIDI channel", selection: $model.channel) {
                     ForEach(1...16, id: \.self) { Text("\($0)").tag($0) }
                 }
                 .fixedSize()
-                .help("The channel the pads' notes are sent on. Instruments with several parts keep drums on channel 10.")
+                .help("The channel the notes are sent on. Instruments with several parts keep drums on channel 10.")
                 Spacer()
                 if model.loading {
                     ProgressView().controlSize(.small)
@@ -70,7 +85,9 @@ private struct PluginRow: View {
             .disabled(model.isSampling)
             Text(model.host == nil
                  ? "Audio Unit instruments installed on this Mac. Choose the one to sample."
-                 : "Choose the kit in the plugin\u{2019}s window, then click the pads to hear what each one will record.")
+                 : model.kind == .pads
+                    ? "Choose the kit in the plugin\u{2019}s window, then click the pads to hear what each one will record."
+                    : "Choose the sound in the plugin\u{2019}s window, then play the keyboard to hear it.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -175,12 +192,12 @@ private struct AuditionRow: View {
                 .labelsHidden()
                 .frame(width: 180)
                 .accessibilityLabel("Velocity")
-                .help("How hard a click or a key plays a pad. A MIDI keyboard plays at its own.")
+                .help("How hard a click or a computer key plays. A MIDI keyboard plays at its own.")
             Text("\(Int(model.velocity.rounded()))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 .frame(width: 30, alignment: .leading)
             Spacer()
             if model.made != nil {
-                Picker("Pads play", selection: $model.hearInstrument) {
+                Picker(model.kind == .pads ? "Pads play" : "Keys play", selection: $model.hearInstrument) {
                     Text("The instrument").tag(true)
                     Text("The plugin").tag(false)
                 }
@@ -200,10 +217,12 @@ private struct SamplingRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 18) {
-                Stepper("Velocity layers: \(model.setup.layerCount)", value: $model.setup.layers, in: 1...MAX_LAYERS)
-                    .help("How many strengths each pad is recorded at. More layers follow the plugin more closely and make a larger instrument.")
-                Stepper("Alternates: \(model.setup.alternateCount)", value: $model.setup.alternates, in: 1...MAX_ALTERNATES)
-                    .help("How many times each hit is recorded, for plugins that vary a hit each time it is played.")
+                if model.kind == .pads {
+                    Stepper("Velocity layers: \(model.setup.layerCount)", value: $model.setup.layers, in: 1...MAX_LAYERS)
+                        .help("How many strengths each pad is recorded at. More layers follow the plugin more closely and make a larger instrument.")
+                    Stepper("Alternates: \(model.setup.alternateCount)", value: $model.setup.alternates, in: 1...MAX_ALTERNATES)
+                        .help("How many times each hit is recorded, for plugins that vary a hit each time it is played.")
+                }
                 Toggle("Real time", isOn: $model.realTime)
                     .help("Records at playing speed. Turn it on for a plugin that sounds wrong when recorded faster.")
             }
@@ -230,20 +249,27 @@ private struct SamplingRow: View {
                     }
                     Text(estimate)
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(tooLarge ? .orange : .secondary)
+                        .help(tooLarge ? "That is a lot of the phone\u{2019}s memory. Fewer samples an octave, fewer layers or a shorter hold make it smaller." : "")
                 }
             }
         }
     }
 
-    /// How many hits will be recorded and roughly how long that takes at playing speed (about three seconds a hit).
+    /// How many hits will be recorded and roughly how long that takes at playing speed (about three seconds a hit; a note is held
+    /// for its hold, then released, about two seconds more). Keys also say roughly how large the instrument will be on the phone.
     private var estimate: String {
-        let count = model.setup.sampleCount
+        let count = model.sampleCount
         guard count > 0 else { return "No pad has a note." }
-        let seconds = count * 3
+        let each = model.kind == .pads ? 3.0 : model.keys.holdLength + 2
+        let seconds = Int(Double(count) * each)
         let time = seconds < 90 ? "\(seconds) seconds" : "\(Int((Double(seconds) / 60).rounded())) minutes"
-        return "\(count) hits. About \(time) in real time, much less otherwise."
+        guard model.kind == .keys else { return "\(count) hits. About \(time) in real time, much less otherwise." }
+        let size = ByteCountFormatter.string(fromByteCount: Int64(model.estimatedKeysBytes), countStyle: .memory)
+        return "\(count) samples, about \(size) on the phone. About \(time) in real time, much less otherwise."
     }
+
+    private var tooLarge: Bool { model.kind == .keys && model.estimatedKeysBytes > PHONE_MEMORY_WARNING_BYTES }
 }
 
 // MARK: - The result
@@ -274,14 +300,18 @@ private struct ResultSection: View {
     }
 
     private var summary: String {
-        let pads = (made.instrument.pads ?? []).compactMap { $0 }
         let size = ByteCountFormatter.string(fromByteCount: Int64(made.fileBytes), countStyle: .file)
+        if made.instrument.kind == .keys {
+            return "\((made.instrument.zones ?? []).count) notes, \(made.audio.count) samples, \(size)"
+        }
+        let pads = (made.instrument.pads ?? []).compactMap { $0 }
         return "\(pads.count) pads, \(made.audio.count) hits, \(size)"
     }
 
     private var sizeWarning: [String] {
         guard made.decodedBytes > PHONE_MEMORY_WARNING_BYTES else { return [] }
         let size = ByteCountFormatter.string(fromByteCount: Int64(made.decodedBytes), countStyle: .memory)
-        return ["This instrument takes about \(size) of the phone\u{2019}s memory while a project uses it. Fewer layers or alternates make it smaller."]
+        let fewer = made.instrument.kind == .keys ? "Fewer samples an octave, fewer layers or a shorter hold" : "Fewer layers or alternates"
+        return ["This instrument takes about \(size) of the phone\u{2019}s memory while a project uses it. \(fewer) make it smaller."]
     }
 }

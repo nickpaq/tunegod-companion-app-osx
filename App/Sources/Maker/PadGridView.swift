@@ -20,12 +20,6 @@ func padTint(_ type: String?) -> Color {
     }
 }
 
-/// A MIDI note's name, with 36 as C1 (the kick of the usual drum layout).
-func noteName(_ note: Int) -> String {
-    let names = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"]
-    return "\(names[((note % 12) + 12) % 12])\(note / 12 - 2)"
-}
-
 struct PadGridView: View {
     @Bindable var model: MakerModel
     @FocusState private var focused: Bool

@@ -14,12 +14,16 @@ final class FakePlugin: NoteRendering {
     var silent: Set<Int> = []
     /// Whether letting the key go stops the note at once.
     var stopsAtNoteOff = false
+    /// When set, letting the key go makes the note fall to 1/e in this long (a sustained sound's release).
+    var releaseSeconds: Double?
     var rightScale: Float = 1
 
     private(set) var held: Set<Int> = []
     private(set) var played: [[Int]] = []
+    /// The frame (counted from the first ever rendered) each note-off came at.
+    private(set) var noteOffFrames: [Int] = []
     private(set) var framesRendered = 0
-    private struct Voice { var note: Int; var level: Float; var age: Int }
+    private struct Voice { var note: Int; var level: Float; var age: Int; var releasedAt: Int? }
     private var voices: [Voice] = []
 
     func noteOn(_ note: Int, velocity: Int, channel: Int) {
@@ -30,23 +34,33 @@ final class FakePlugin: NoteRendering {
 
     func noteOff(_ note: Int, channel: Int) {
         held.remove(note)
+        noteOffFrames.append(framesRendered)
         if stopsAtNoteOff { voices.removeAll { $0.note == note } }
+        if releaseSeconds != nil {
+            for i in voices.indices where voices[i].note == note && voices[i].releasedAt == nil { voices[i].releasedAt = voices[i].age }
+        }
+    }
+
+    private func amplitude(_ v: Voice) -> Float {
+        let decayFrames = Float(decaySeconds * sampleRate)
+        var a = v.level * (endless.contains(v.note) ? 1 : exp(-Float(max(0, v.age)) / decayFrames))
+        if let r = v.releasedAt, let release = releaseSeconds {
+            a *= exp(-Float(max(0, v.age - r)) / Float(release * sampleRate))
+        }
+        return a
     }
 
     func render(frames: Int, left: inout [Float], right: inout [Float]) throws {
-        let decayFrames = Float(decaySeconds * sampleRate)
         for _ in 0..<frames {
             var s: Float = 0
             for i in voices.indices {
-                if voices[i].age >= 0 {
-                    s += voices[i].level * (endless.contains(voices[i].note) ? 1 : exp(-Float(voices[i].age) / decayFrames))
-                }
+                if voices[i].age >= 0 { s += amplitude(voices[i]) }
                 voices[i].age += 1
             }
             left.append(s)
             right.append(s * rightScale)
         }
         framesRendered += frames
-        voices.removeAll { !endless.contains($0.note) && $0.age > 0 && $0.level * exp(-Float($0.age) / decayFrames) < 1e-7 }
+        voices.removeAll { $0.age > 0 && amplitude($0) < 1e-7 }
     }
 }

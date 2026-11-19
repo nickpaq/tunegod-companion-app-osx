@@ -1,4 +1,5 @@
-// The Make instrument window's state: the plugin that is loaded, the sixteen pads' setup, the sampling in progress and its result.
+// The Make instrument window's state: the plugin that is loaded, what is sampled (the sixteen pads' setup, or a keys instrument's
+// range), the sampling in progress and its result.
 import AppKit
 import os
 import SwiftUI
@@ -34,10 +35,18 @@ final class MakerModel {
     /// Something the user must read: a plugin that would not load, sampling that failed, a file that could not be written.
     var problem: String?
 
+    /// Pads (a drum kit on the 4 × 4 grid) or keys (the plugin played across a range of notes).
+    var kind = TGIKind.pads {
+        didSet { if kind != oldValue { kindChanged() } }
+    }
     var setup = KitSetup.standardDrums()
+    var keys = KeysSetup()
     var selectedPad = 12
     /// The next note played on a MIDI keyboard becomes the selected pad's note.
     var learning = false
+    /// The next note played on a MIDI keyboard becomes the keys' lowest or highest note.
+    enum RangeEnd { case lowest, highest }
+    var learningRange: RangeEnd?
     var realTime = false
     private(set) var phase = Phase.setup
     private(set) var made: MadeInstrument?
@@ -45,18 +54,33 @@ final class MakerModel {
     var hearInstrument = false
     var velocity = 127.0
     var name = ""
-    /// Pads that are sounding, for the grid to light.
+    /// Pads that are sounding, for the grid to light; on keys, the notes that are sounding.
     private(set) var lit = Set<Int>()
 
     private var live: LiveOutput?
     private var player: InstrumentPlayer?
+    private var keysPlayer: KeysPlayer?
     private var midi: MIDIInput?
     private let pluginWindow = PluginWindow()
     private let cancel = OSAllocatedUnfairLock(initialState: false)
 
     var plugin: PluginInfo? { plugins.first { $0.id == pluginID } }
     var isSampling: Bool { phase != .setup }
-    var canSample: Bool { host != nil && !isSampling && setup.sampleCount > 0 }
+    var sampleCount: Int { kind == .pads ? setup.sampleCount : keys.sampleCount }
+    var canSample: Bool { host != nil && !isSampling && sampleCount > 0 }
+    /// Roughly how much of the phone's memory the keys instrument will take, before it is sampled: every sample its hold long plus a
+    /// second and a half of release, in two channels of 32-bit samples. A sound that dies away sooner makes it smaller.
+    var estimatedKeysBytes: Int {
+        Int(Double(keys.sampleCount) * (keys.holdLength + 1.5) * CaptureSettings().sampleRate) * 2 * MemoryLayout<Float>.size
+    }
+    /// The MIDI channel the plugin is played on, the same for pads and keys.
+    var channel: Int {
+        get { setup.channel }
+        set {
+            setup.channel = newValue
+            keys.channel = newValue
+        }
+    }
 
     /// Called when the window appears: the plugins on this Mac, and the MIDI keyboards.
     func start() {
@@ -75,11 +99,12 @@ final class MakerModel {
     private var sampleOnceLoaded = false
 
     /// For checking the window without a hand on the mouse (debug builds only): `--plugin <part of its name>` chooses a plugin,
-    /// `--channel <n>` its MIDI channel, `--sample` presses Sample once it has loaded.
+    /// `--channel <n>` its MIDI channel, `--keys` makes a keys instrument, `--sample` presses Sample once it has loaded.
     private func applyLaunchArguments() {
         let args = ProcessInfo.processInfo.arguments
         let value = { (flag: String) in args.firstIndex(of: flag).flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } }
-        if let channel = value("--channel").flatMap(Int.init) { setup.channel = min(16, max(1, channel)) }
+        if let channel = value("--channel").flatMap(Int.init) { self.channel = min(16, max(1, channel)) }
+        if args.contains("--keys") { kind = .keys }
         if let wanted = value("--plugin")?.lowercased(), let plugin = plugins.first(where: { $0.title.lowercased().contains(wanted) }) {
             sampleOnceLoaded = args.contains("--sample")
             pluginID = plugin.id
@@ -132,7 +157,7 @@ final class MakerModel {
         guard setup.pads.indices.contains(index), let pad = setup.pads[index], !isSampling else { return }
         let v = velocity ?? Int(self.velocity.rounded())
         lit.insert(index)
-        if hearInstrument, made != nil {
+        if hearInstrument, player != nil {
             player?.play(pad: index, velocity: v)
         } else {
             host?.noteOn(pad.note, velocity: v, channel: setup.channel)
@@ -142,16 +167,42 @@ final class MakerModel {
     func padUp(_ index: Int) {
         lit.remove(index)
         guard setup.pads.indices.contains(index), let pad = setup.pads[index], !isSampling else { return }
-        if !(hearInstrument && made != nil) { host?.noteOff(pad.note, channel: setup.channel) }
+        if !(hearInstrument && player != nil) { host?.noteOff(pad.note, channel: setup.channel) }
+    }
+
+    /// A key pressed on the window's keyboard or a MIDI keyboard: it sounds on the plugin, or on the finished keys instrument.
+    func keyDown(_ note: Int, velocity: Int? = nil) {
+        guard !isSampling, (0...127).contains(note) else { return }
+        let v = velocity ?? Int(self.velocity.rounded())
+        lit.insert(note)
+        if hearInstrument, let keysPlayer {
+            keysPlayer.keyDown(note, velocity: v)
+        } else {
+            host?.noteOn(note, velocity: v, channel: keys.channel)
+        }
+    }
+
+    func keyUp(_ note: Int) {
+        lit.remove(note)
+        guard !isSampling else { return }
+        if hearInstrument, let keysPlayer { keysPlayer.keyUp(note) } else { host?.noteOff(note, channel: keys.channel) }
     }
 
     private func midiNote(_ note: MIDINote) {
         guard !isSampling else { return }
+        if kind == .keys {
+            if let end = learningRange, note.on {
+                if end == .lowest { keys.lowest = note.note } else { keys.highest = note.note }
+                learningRange = nil
+            }
+            if note.on { keyDown(note.note, velocity: note.velocity) } else { keyUp(note.note) }
+            return
+        }
         if learning, note.on, setup.pads.indices.contains(selectedPad), setup.pads[selectedPad] != nil {
             setup.pads[selectedPad]?.note = note.note
             learning = false
         }
-        if hearInstrument, made != nil {
+        if hearInstrument, player != nil {
             // The finished instrument has pads, not notes: the key plays the pad that was given its note.
             guard let index = setup.pads.firstIndex(where: { $0?.note == note.note }) else { return }
             if note.on { padDown(index, velocity: note.velocity) } else { padUp(index) }
@@ -175,18 +226,36 @@ final class MakerModel {
         for i in setup.pads.indices { setup.pads[i]?.cuts.removeAll { $0 == index } }
     }
 
+    /// Pads and keys keep their own setup; what was made for the other one is put away.
+    private func kindChanged() {
+        host?.allNotesOff()
+        clearResult()
+        learning = false
+        learningRange = nil
+    }
+
+    private func clearResult() {
+        made = nil
+        player?.stopAll()
+        player = nil
+        keysPlayer?.stopAll()
+        keysPlayer = nil
+        hearInstrument = false
+        lit = []
+    }
+
     // MARK: Sampling
 
     func sample() {
+        if kind == .keys { sampleKeysInstrument() } else { samplePads() }
+    }
+
+    private func samplePads() {
         guard let host, canSample else { return }
         let setup = setup, realTime = realTime, cancel = cancel
         let name = name, madeWith = host.info.title
         problem = nil
-        made = nil
-        player?.stopAll()
-        player = nil
-        hearInstrument = false
-        lit = []
+        clearResult()
         cancel.withLock { $0 = false }
         phase = .sampling(done: 0, total: setup.sampleCount, label: "")
         host.allNotesOff()
@@ -211,6 +280,36 @@ final class MakerModel {
         }
     }
 
+    private func sampleKeysInstrument() {
+        guard let host, canSample else { return }
+        let keys = keys, realTime = realTime, cancel = cancel
+        let name = name, madeWith = host.info.title
+        problem = nil
+        clearResult()
+        cancel.withLock { $0 = false }
+        phase = .sampling(done: 0, total: keys.sampleCount, label: "")
+        host.allNotesOff()
+        host.sampling = true
+        host.offline = !realTime
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let outcome: Result<(MadeInstrument, KeysPlayer), Error>
+            do {
+                let sampled = try sampleKeys(host, setup: keys, settings: CaptureSettings(), realTime: realTime, progress: { done, total, label in
+                    Task { @MainActor in self?.progressed(done, total, label) }
+                }, cancelled: { cancel.withLock { $0 } })
+                let built = try buildKeysInstrument(sampled, setup: keys, name: name, madeWith: madeWith, id: UUID().uuidString,
+                                                    created: Date().formatted(Date.ISO8601FormatStyle()), sampleRate: host.sampleRate)
+                let player = try KeysPlayer(instrument: built.instrument, audio: built.audio)
+                let file = try writeTGI(built.instrument, audio: built.audio)
+                outcome = .success((MadeInstrument(instrument: built.instrument, audio: built.audio, warnings: built.warnings,
+                                                   fileBytes: file.count, decodedBytes: player.decodedBytes), player))
+            } catch {
+                outcome = .failure(error)
+            }
+            await self?.finishedKeys(outcome, host: host)
+        }
+    }
+
     func cancelSampling() {
         cancel.withLock { $0 = true }
     }
@@ -221,10 +320,7 @@ final class MakerModel {
     }
 
     private func finished(_ outcome: Result<(MadeInstrument, InstrumentPlayer), Error>, host: PluginHost) {
-        host.allNotesOff()
-        host.offline = false
-        host.sampling = false
-        phase = .setup
+        endSampling(host)
         switch outcome {
         case .success(let (instrument, player)):
             made = instrument
@@ -233,6 +329,25 @@ final class MakerModel {
         case .failure(let error):
             if !(error is SamplingCancelled) { problem = error.localizedDescription }
         }
+    }
+
+    private func finishedKeys(_ outcome: Result<(MadeInstrument, KeysPlayer), Error>, host: PluginHost) {
+        endSampling(host)
+        switch outcome {
+        case .success(let (instrument, player)):
+            made = instrument
+            keysPlayer = player
+            hearInstrument = true
+        case .failure(let error):
+            if !(error is SamplingCancelled) { problem = error.localizedDescription }
+        }
+    }
+
+    private func endSampling(_ host: PluginHost) {
+        host.allNotesOff()
+        host.offline = false
+        host.sampling = false
+        phase = .setup
     }
 
     // MARK: Saving and sending
@@ -280,6 +395,7 @@ final class MakerModel {
         cancelSampling()
         host?.allNotesOff()
         player?.stopAll()
+        keysPlayer?.stopAll()
         lit = []
     }
 }
